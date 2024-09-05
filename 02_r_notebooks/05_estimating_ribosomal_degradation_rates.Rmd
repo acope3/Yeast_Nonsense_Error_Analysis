@@ -1,0 +1,114 @@
+---
+title: "Estimating Ribosome Protein Indirect Costs:
+author: "Michael A. Gilchrist"
+date: "2024-05-30"
+output: html_document
+---
+
+
+# Purpose
+
+Estimate  indirect overhead cost of ribosome not bound to an mRNA and pausing during translation using data on S. cerevisiae from 
+
+- Turn over rate and size: `ChristianoEtAl2014` study on protein turn over rates in S. cerevisiae and pombi.
+- Production costs: Adjusting numbers from `NeissEtAl2019` for E coli to yeast
+  - E Coli
+    - rRNA = 120 nt +  1542 nt + 2906 nt = 4568 nt at cost of 42,934 ATP
+    - Protein = 7459 AA
+      - AA Synthesis cost: 35,689 ATP
+      - Assembly Cost    29,836 ATP
+  - Yeast
+    - > The yeast ribosome is composed of two subunits. The 60S subunit contains three RNA molecules: 25S RNA of 3392 nt, hydrogen bonded to the 5.8S RNA of 158 nt and associated with the 5S RNA of 121 nt. There are 42 proteins in the large subunit, plus two copies each of two acidic exchangeable proteins. Altogether there are 3671 nt and 7235 amino acids in the 60S subunit, giving it a ratio of ∼61% RNA to 39% protein. The 40S subunit has a single RNA of 1798 nt and 32 proteins with a total of 4749 amino acids, giving it a ratio of 54% RNA to 46% protein.   (VerschoorEtAl1998)
+    - rRNA: 3671 nt + 1798 nt = 5469 nt
+    - protein: 7235 aa + 4749 aa = 11984 aa
+  - Scaling Costs from Ecoli to yeast
+    - nt: 5469 nt * 42934 ATP/4568 nt = 51402.4 ATP
+    - aa 
+      - AA Synthesis + Assembly: 22984 aa * (35689 ATP + 29836 ATP)/4568 aa = 329691 ATP
+      - AA Assembly: 22984 aa * (29836 ATP)/4568 aa =  150121 ATP
+    - Total 
+      - Synth and Assembly: 51402 ATP + 329691 ATP = 381093 ATP
+      - Assembly Only: 51402 ATP + 150121 = 201523
+        - Because we are not considering the cost of AA synthesis in protein production we will ignore it here as well.
+- Overhead Cost
+  - Based on numbers below, the median half life = 606 min =  36360 s
+  - Cost per second: 201523 ATP /36360 s = 5.5 ATP/s
+  - Elongation ROC
+    - 5.5 ATP/s*1 s/9.3 aa = 0.59 ATP/AA
+  - Initiation ROC
+    - If 80% of ribosomes are bound to mRNA, then ribosome spends 20% of its life in the cytosol.
+    - If the average protein is 400aa and we do 9.3aa/sec it takes 43.0 s to translate the average mRNA
+      - 0.8 * x  = 43s -> x = 43s/0.8 = 53.75s/translation cycle
+      - 0.2 * 53.75s = 10.75s in cytosol
+    - 10.75s/initiation * 5.5 ATP/s = 59.1 ATP/initiation
+- Direct Costs
+  - Elongation
+    - 4 ATP/AA or 9.3 AA/sec * 4 ATP/AA = 37.2 ATP/s (ShahEtAl2013)
+  - Initiation
+    - 4 ATP
+
+So for 
+
+- Initiation: ROC is ~15x the direct cost
+- Elongation: ROC is 1/6.8 ~ 1/7th the direct cost
+
+    
+# Set Up Analysis
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.show="hold", out.width="50%", warning = FALSE)
+library(tidyverse)
+library(AnaCoDa)
+
+plotting.target <- switch(1,
+                          "paper",
+                          "talk")
+source("ggplot2.settings.R")
+suppressMessages(source("../R_notebooks/helperFunctions.R"))
+
+```
+
+
+# Load data
+
+```{r}
+
+data <- list()
+
+data[["all"]] <- read_csv(file.path("../", "Data", "Degradation", "Scer", "1-s2.0-S2211124714009346-mmc2.csv")) %>%
+  select_all(~gsub("\\s+|\\.", "_", .)) %>%
+  select_all(~gsub("\\(|\\)", "", .)) %>%
+  select_all(~gsub("(1/2|-1)", "", .)) %>%
+  select_all(~gsub("hours", "hr", .)) %>%
+  select_all(tolower) %>%
+  rename(decay_min = degradation_rates_min,
+         rsq = r2_quality_of_curve_fitting)
+
+names(data[["all"]])
+summary(data[["all"]])
+        
+rdata <-
+  data[["rib"]] <-
+  data[["all"]] %>%
+  filter(str_detect(protein_name, "ribosomal protein") & !(str_detect(protein_name, "itochon"))) %>%
+  mutate(t_min =  str_replace(t_min, "n.d.", "6000") |> as.double())
+head(rdata)
+
+rhalf <- rdata$"t_min"
+
+mean(rhalf)
+median(rhalf)
+sd(rhalf)
+
+
+
+ggplot(rdata, aes(x = t_min, color = rsq, fill = rsq)) + geom_histogram() +
+  scale_x_log10()
+
+ggplot(rdata, aes(x = t_min, y = rsq)) + geom_point() +
+  scale_x_log10()
+
+
+```
+ The above estimates are consistent with the numbers presented in ChristianoEtAl2014's Figure 3c
+ 

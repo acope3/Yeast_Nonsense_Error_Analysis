@@ -1,0 +1,171 @@
+---
+title: "Data quality and filtering"
+author: "Alexander Cope"
+date: "2024-05-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.show="hold", out.width="50%", warning = FALSE)
+
+library(tidyverse)
+library(AnaCoDa)
+
+# Set up how you want to render plots
+plotting.target <- switch(1,
+                          "paper",
+                          "talk")
+source("ggplot2.settings.R") # includes loading of ggplot and assoc libraries
+suppressMessages(source("helperFunctions.R"))
+
+```
+
+# Description of ribosome profiling data
+
+The primary data set used in this analysis will be the taken from Weinberg et al. 2016 Cell Reports.
+Ribosome profiling was performed using a flash-freezing protocol to stop elongating ribosomes instead of cyclohexemide.
+This data set appeared to reduce the overall impact of the 5'-ramp phenomenon, although ribosome densities were 30% higher on average in this region, regardless of codon identity.
+
+Ribosome profiling data were aligned using the software riboviz 2.
+As is typical, mapped reads of lengths 28-30 were assigned to codons in the A-sites using a 15 nucleotide (nt) offset relative to the 5'-end of the read.
+As can be seen by a metagene analysis (i.e. averaging over all genes), the Weinberg et al. 2016 data still exhibits an increase in ribosome density at the 5'-ends of the transcript.
+In addition, there appears to be a small dip followed by rise in ribosome density between the 10th and 30th codon.
+It is unclear if this increase in ribosome density is biological or the result of a technical artifact. 
+
+
+```{r}
+rfp <- read_csv("../00_data/00_panse_input/00_unfiltered_genes/weinberg_etal_2016_all_genes.csv")
+if ("gene" %in% colnames(rfp))
+{
+  rfp <- rfp %>%
+    rename(GeneID = gene)
+}
+
+rfp <- rfp %>%
+  group_by(GeneID) %>%
+  mutate(RFPDensity = RFPCount/mean(RFPCount))
+
+
+
+rfp.by.pos <- rfp %>%
+  ungroup() %>%
+  group_by(Position) %>%
+  dplyr::summarize(Density= mean(RFPDensity)) %>%
+  filter(Position <= 500)
+
+ramp.plot <- ggplot(rfp.by.pos,aes(x=Position,y=Density)) +
+  geom_line() +
+  # geom_vline(xintercept = 10,linetype="solid") +
+  # geom_vline(xintercept = 200,linetype="dashed") +
+  # geom_vline(xintercept = 40,linetype="dotted") +
+  ylab("Ribosome Density") +
+  xlab("Position") +
+  #ggtitle("Metagene profile of ribosome densities across positions")+
+  theme_cowplot()
+
+ramp.plot
+
+ggsave2(file.path(fig.dir, "pre-filter_ramp_plot.pdf"),ramp.plot)
+```
+
+Importantly, the increase in ribosome densities observed at the 5'-ends, often referred to as the "5'-ramp", is an average trend over genes, with individual genes showing significant variability in the extent this increased density is present.
+Overall, we do observe that the Spearman rank correlation between ribosome density and position is, on average, negatively distributed, although weakly so ($\mu = -0.082$, $t$-test $p < 2.2e-16$).
+
+```{r, warning=F}
+rfp.split <- rfp %>% 
+  group_by(GeneID) %>%
+  split(f = as.factor(.$GeneID))
+
+cor.pos.rfp <- lapply(rfp.split,function(x){
+  cor.test(x$Position,x$RFPDensity,method="spearman",use="complete.obs") %>% tidy()
+}) %>% bind_rows(.id="GeneID")
+
+cor.pos.rfp <- cor.pos.rfp %>%
+  arrange(desc(estimate))
+
+mean.cor <- mean(cor.pos.rfp$estimate)
+
+cor.pos.hist <- ggplot(cor.pos.rfp,aes(x=estimate))+
+  geom_histogram(fill="white",color="black") +
+  xlab("Spearman Correlation\nPosition vs. Ribosome Density") +
+  ylab("Count") +
+  theme_cowplot()
+cor.pos.hist
+
+t.test(cor.pos.rfp$estimate)
+
+```
+
+## Data filtering
+
+We note that there are numerous genes exhibiting very strong correlations with position.
+Manual inspection of the genes at the extreme end of this distribution reveals odd behavior in the ribosome densities.
+Many of the genes with relatively high positive correlations between position of a codon and ribosome density often have little to no ribosome density at the 5'-end.
+Often, but not always, the increase in ribosome density follows soon after another ATG codon (e.g. YDR512C), suggesting possible mis-annotations of the gene.
+We filtered out 23 genes that had correlations between position and density > 0.5.
+
+
+```{r, fig.show="hold", out.width="100%"}
+## Note: fig.show and out.width arguments allows us to print out multiple figures/row when knitting file
+pos.genes <- cor.pos.rfp %>%
+  filter(estimate > 0.5) %>%
+  dplyr::pull(GeneID)
+
+
+length(pos.genes)
+
+## Alex's
+gene.1 <- plotRFPByPosition(rfp,"YDR512C",codons="ATG") +
+  theme(plot.title = element_text(size=12))
+gene.2 <- plotRFPByPosition(rfp,"YGL220W",codons="ATG") +
+  theme(plot.title = element_text(size=12))
+
+gene.1
+gene.2
+```
+
+
+On the opposite end of the distribution, genes exhibiting very high strong negative correlations between position of a codon and ribosome density also show a very sudden loss if ribosome density.
+Notably, two of these (YIL009C-A, YPL052W) have a programmed +1 ribosome frameshift, a violation of the model assumptions.
+We filtered out 11 genes that had correlations between position and density < -0.5.
+
+```{r, fig.show="hold", out.width="33%"}
+
+neg.genes <- cor.pos.rfp %>%
+  filter(estimate < -0.5) %>%
+  dplyr::select(GeneID) %>%
+  deframe()
+
+length(neg.genes)
+
+lapply(neg.genes,function(gene){
+  plotRFPByPosition(rfp,gene)
+})
+
+gene.3 <- plotRFPByPosition(rfp,"YER066W")
+gene.4 <- plotRFPByPosition(rfp,"YIL009C-A")
+gene.3
+gene.4
+
+```
+
+
+
+
+```{r,fig.width=7,fig.height=5}
+data.filt.ex <- (cor.pos.hist | ( (gene.1 | gene.2) / (gene.3 | gene.4) )) + plot_annotation(tag_levels = "A")
+data.filt.ex
+ggsave2(file.path(fig.dir, "data_filtering_examples.pdf"),data.filt.ex,width=9,height=5)
+```
+
+
+We filtered out genes based on 3 criteria:
+1. Remove genes in the 5% most negative and most positive correlations. 
+2. Perform a binomial test at the 5'-end based on the number of missing sites (e.g. ribosome count is 0 at codon position) compared to the 3'-end. This is an additional test meant to help exclude genes with potentially mis-annotated start sites. 
+3. As ribosome pauses -- defined as codon positions with ribosome densities much greater than other regions of the gene -- are also a violation of the model. These were detected based on a Z-score. Although we could just mask these ribosome pauses, we opted to exclude the entire gene, as ribosome pauses may result in elongation dynamics that violate model assumptions. We used a cutoff of Z > 3.92. 
+
+
+We note that some of these tests may be liberal in terms of excluding genes that may, in fact, be "good" genes.
+However, we reasoned that it may be more harmful to include a "bad" gene rather than exclude a "good" gene, as the latter are likely more prevalent in the dataset.
+Excluding potentially bad genes had relatively little impact on parameter estimation.
+

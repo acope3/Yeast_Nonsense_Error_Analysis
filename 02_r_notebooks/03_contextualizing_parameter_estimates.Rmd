@@ -1,0 +1,971 @@
+---
+title: "Contextualizing parameter estimates"
+author: "Alexander Cope"
+date: "2024-05-23"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.show="hold", out.width="50%", warning = FALSE)
+library(tidyverse)
+library(AnaCoDa)
+
+plotting.target <- switch(1,
+                          "paper",
+                          "talk")
+source("ggplot2.settings.R")
+suppressMessages(source("helperFunctions.R"))
+
+```
+
+
+
+# Contextualing parameter estimates
+
+
+```{r}
+main.yeast.data.path <- "../00_data/00_panse_input/2023-06-12_weinberg_etal_2016_all_frames_200_ramp.csv"
+full.yeast.data.path <- "../00_data/00_panse_input/2023-01-05_weinberg_etal_2016_all_frames_0_ramp.csv"
+main.yeast.result.path <- "../01_results/00_panse_fits/2023-07-20_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_200_ramp_run_2/final_restart/"
+
+main.yeast.data <- read_csv(main.yeast.data.path)
+full.yeast.data <- read_csv(full.yeast.data.path)
+
+main.yeast.result <- getParameterDataFrames(main.yeast.result.path)
+
+bonnin <- read_csv("../00_data/01_correlates/bonnin_etal_yeast_init_rates_dro_off_resilience.csv",na = "#N/A")
+mrna <- read_tsv("../00_data/01_correlates/Weinberg_etal_2016_processed/GSE75897_RiboZero_RPKMs.txt",col_names = c("GeneID","RPKM"))
+
+init.rates <- read_tsv("../00_data/01_correlates/Weinberg_etal_2016_processed/weinberg_synthesis.txt") %>% 
+  dplyr::select(ORF,S) %>%
+  dplyr::rename(GeneID=ORF)
+roc.phi <- read_csv("../00_data/01_correlates/ROC_Estimates/saccharomyces_cerevisiae.max.cds_Phi.csv") %>%
+  dplyr::select(GeneID,Mean)
+
+ribo.wt <- read_tsv("../00_data/01_correlates/Weinberg_etal_2016_processed/weinberg_ribo_dens.tsv")
+dao.duc.elong.rates <- read_csv("../00_data/01_correlates/dao_duc_and_song_ribosome_elong_rates.csv") # from Dao Duc and Song Plos Genetics 2018
+deta <- read_csv("../00_data/01_correlates/ROC_Estimates/saccharomyces_cerevisiae.max.cds_Selection.csv") %>%
+  dplyr::rename(DEta = Mean)
+
+## Calculate $\sigma(n)$
+
+full.yeast.data <- full.yeast.data %>%
+  left_join(main.yeast.result$Wait.Time %>% dplyr::select(Codon,Mean) %>% dplyr::rename(Wait.Time = Mean),by="Codon") %>%
+  left_join(main.yeast.result$NSERate %>% dplyr::select(Codon,Mean) %>% dplyr::rename(NSERate = Mean),by="Codon")
+
+sigma <- full.yeast.data %>% 
+  mutate(Prob.Successful = (1/NSERate)/(1/NSERate + Wait.Time)) %>%
+  group_by(GeneID) %>%
+  dplyr::summarize(Sigma = prod(1*Prob.Successful),
+            Length=n()) %>%
+  left_join(main.yeast.result$Phi %>% dplyr::select(GeneID,Mean) %>% dplyr::rename(Phi = Mean),by="GeneID")
+
+sigma <- sigma %>%
+  left_join(bonnin, by="GeneID") %>%
+  left_join(mrna,by="GeneID") %>%
+  left_join(init.rates,by="GeneID") %>%
+  left_join(roc.phi, by="GeneID")
+
+
+```
+
+The key parameters that PANSE estimates are initiation rates $\phi$, codon-specific waiting times $\omega$, and codon-specific NSE Rates $b$.
+$\phi$ and $\omega$ are expected to correlate both with empirical measures of these parameters, as well as similar estimates from ROC-SEMPPR, which is based entirely on codon usage data. 
+
+
+```{r}
+
+mrna.vs.panse<- ggplot(sigma,aes(x=RPKM,y=Phi)) + #,label=GeneID)) +
+  geom_point(show.legend = F) +
+  stat_cor(method="spearman",label.sep="\n") +
+  xlab("mRNA Abundances (RPKM)") +
+  ylab(expression("Total Initation Rates"~kappa[g]^"'"~"(PANSE)")) +
+  scale_x_log10() +
+  scale_y_log10() +
+  #ggtitle("RNA-seq mRNA abundances vs.\n PANSE Total Initiation Rates") +
+  theme(ggside.axis.text = element_blank(),
+        ggside.axis.line = element_blank(),
+        ggside.axis.ticks = element_blank()) +
+  geom_xsidehistogram(fill="white",color="black") +
+  geom_ysidehistogram(fill="white",color="black")
+mrna.vs.panse
+
+
+ggsave3(file = file.path(fig.dir, "mRNA-vs-PANSE.pdf"),
+       plot = mrna.vs.panse)
+
+
+mrna.vs.init<- ggplot(sigma,aes(x=S,y=Phi,label=GeneID)) +
+  geom_point(show.legend = F) +
+  stat_cor(method="spearman",label.sep="\n") +
+  xlab(expression(iota[g]~"Initiation Rates (Whole-cell Model)")) +
+  ylab(expression(kappa[g]^"'"~"Total Initation Rates (PANSE)")) +
+  scale_x_log10() +
+  scale_y_log10() +
+  #ggtitle("Whole-cell Model vs. PANSE Total Initiation Rates") +
+  theme(ggside.axis.text = element_blank(),
+        ggside.axis.line = element_blank(),
+        ggside.axis.ticks = element_blank()) +
+  geom_xsidehistogram(fill="white",color="black") +
+  geom_ysidehistogram(fill="white",color="black")
+mrna.vs.init
+
+ggsave3(file = file.path(fig.dir, "whole-cell-init_vs_kappa.pdf"),
+       plot = mrna.vs.init)
+
+panse.vs.roc.initiation <- ggplot(sigma,aes(x=Mean,y=Phi)) +
+  geom_point(show.legend = F) +
+  scale_x_log10() +
+  scale_y_log10() +
+  stat_cor(method="spearman",label.sep="\n") +
+  theme(ggside.axis.text = element_blank(),
+        ggside.axis.line = element_blank(),
+        ggside.axis.ticks = element_blank()) +
+  geom_xsidehistogram(fill="white",color="black") +
+  geom_ysidehistogram(fill="white",color="black") +
+  #ggtitle("ROC-SEMPPR Codon-based Production Rates vs.\nPANSE Total Initiation Rates") +
+  xlab(expression("Protein Production Rates"~phi~"(ROC-SEMPPR)")) +
+  ylab(expression("Total Initation Rates"~kappa[g]^"'"~"(PANSE)"))
+panse.vs.roc.initiation
+
+ggsave3(file = file.path(fig.dir, "PANSE_vs_ROC_initiation-rates.pdf"),
+       plot = panse.vs.roc.initiation)
+```
+
+
+```{r}
+ribo.wt.w.panse <- ribo.wt %>%
+  left_join(main.yeast.result$Wait.Time,by=c("AA","Codon")) %>%
+  left_join(dao.duc.elong.rates,by="Codon") %>%
+  left_join(deta,by=c("AA","Codon"))  %>% 
+  separate(Codon,into=c("First","Second","Third"),sep="(?<=[A-Z])",remove = F) %>%
+  mutate(Third.Nuc = ifelse(Third == "G" | Third == "C","GC","AT"))  %>%
+  mutate(Rate = 1/Mean)
+
+panse.wait.times.vs.elong.rates <- ggplot(ribo.wt.w.panse,aes(x=mean_elongation_rate,y=Mean,label=Codon)) +
+  geom_point() +
+  geom_errorbar(aes(ymin=`2.5%.x`,ymax=`97.5%.x`)) +
+  stat_cor(method="spearman",label.sep="\n",label.x.npc = "center") +
+  xlab("Elongation Rates (codons/s)\nDao Duc & Song (2018) PLoS Genetics") +
+  ylab(expression("Pausing Times"~w[c]~"(PANSE)"))  +
+  theme(plot.margin = unit(c(0,30,0,0), "pt"))
+panse.wait.times.vs.elong.rates
+
+ggsave3(file = file.path(fig.dir, "PANSE-waiting-times_vs_Duc-Song-elongation-rates.pdf"),
+       plot = panse.wait.times.vs.elong.rates)
+
+panse.vs.duc.song <- ggplot(ribo.wt.w.panse,aes(x=mean_elongation_rate,y=Rate,label=Codon)) +
+  geom_point() +
+  #geom_abline(slope=1,intercept = 0,linetype="dashed") +
+  geom_errorbar(aes(ymax=1/`2.5%.x`,ymin=1/`97.5%.x`)) +
+  stat_cor(method="spearman",label.sep="\n",label.x.npc = "center") +
+  xlab("Elongation Rates (codons/s)\nDao Duc & Song (2018) PLoS Genetics") +
+  ylab(expression("Relative Elongation Rates"~w[c]~"(PANSE)"))  +
+  theme(plot.margin = unit(c(0,30,0,0), "pt"))
+  #ggtitle("Elongation Rates: PANSE vs. Dao Duc & Song TASEP Model") 
+panse.vs.duc.song
+
+ggsave3(file = file.path(fig.dir, "PANSE_vs_Duc-Song_elongation-rates.pdf"),
+       plot = panse.vs.duc.song)
+
+
+panse.vs.trna.wt <- ggplot(ribo.wt.w.panse,aes(x=1/`(tRNA_GCN*Wobble)`,y=Mean)) +
+  geom_point() +
+  stat_cor(method="spearman",label.sep="\n") +
+  xlab("Pausing Times"~w[c]~"1/(tGCN * wobble)") +
+  ylab(expression("Pausing Times"~w[c]~"(PANSE)")) +
+  #ggtitle("Pausing Times vs.\n tGCN-based Pausing Times") +
+  theme(plot.margin = unit(c(0,30,0,0), "pt"))
+panse.vs.trna.wt
+
+ggsave3(file = file.path(fig.dir, "PANSE_vs_tRNA_waiting-times.pdf"),
+       plot = panse.vs.trna.wt)
+
+
+
+deta.w.panse <- main.yeast.result$Wait.Time %>%
+  left_join(deta,by=c("AA","Codon"),suffix=c("_PANSE","_ROC"))
+
+deta.w.panse <- deta.w.panse %>% 
+  mutate(Reference = ifelse(DEta == 0,1,0)) %>% 
+  group_by(AA) %>% 
+  mutate(Rel.WT = Mean - Mean[Reference == 1],
+         `Rel_2.5%_PANSE` = `2.5%_PANSE` - Mean[Reference == 1],
+         `Rel_97.5%_PANSE` = `97.5%_PANSE` - Mean[Reference == 1]) %>%
+  filter(Reference != 1) %>%
+  separate(Codon,into=c("First","Second","Third"),sep="(?<=[A-Z])",remove = F) %>%
+  mutate(Third.Nuc = ifelse(Third == "G" | Third == "C","GC","AT"))
+
+
+panse.vs.deta <- ggplot(deta.w.panse,aes(x=DEta,y=Rel.WT)) +
+  geom_point() +
+  stat_cor(method="spearman",label.sep="\n") +
+  xlab(expression("Selection Against Pausing"~Delta*eta~"(ROC-SEMPPR)")) +
+  ylab(expression("Relative Pausing Times"~Delta*w[c]~"(PANSE)")) +
+  geom_errorbarh(aes(xmin=`2.5%_ROC`, xmax=`97.5%_ROC`)) +
+  geom_errorbar(aes(ymin=`Rel_2.5%_PANSE`, ymax=`Rel_97.5%_PANSE`))  +
+  theme(plot.margin = unit(c(30,30,0,0), "pt"))
+  #ggtitle(expression("Differences in PANSE's Pausing Times vs.\nROC SEMPPR's CUB Based Selection Against Pausing"~Delta*eta)) +
+panse.vs.deta
+
+ggsave3(file = file.path(fig.dir, "PANSE_vs_ROC_pausing-times.pdf"),
+       plot = panse.vs.deta)
+
+```
+
+We observe that estimates of initiation rates $\phi$ and codon waiting times $\omega$ are generally well-correlated with other measures of gene expression and codon elongation rates from the Weinberg et al. ribosome profiling data, as well independent empirical estimates from RNA-seq, tRNA gene copy number approximated waiting times, and codon usage-based estimates.
+
+```{r fig.width=7, fig.height=7}
+
+fig.1 <-(mrna.vs.panse | panse.vs.trna.wt) / (panse.vs.roc.initiation | panse.vs.deta) + plot_annotation(tag_levels = 'A')
+fig.1
+ggsave3(file.path(fig.dir, "Figure_1.pdf"),plot=fig.1,width=11,height = 11)
+
+ggsave3(file.path(fig.dir, "panse_vs_daoduc_2018.pdf"),plot=panse.wait.times.vs.elong.rates,width=5,height=5)
+```
+
+Taken together, these results suggest that PANSE is reliably estimating parameters that represent the initiation rates and codon waiting times from ribosome profiling data.
+These parameters are often very similar to estimates of initiation rates and ribosome densities output by software for analzing ribosome profiling data, such as riboviz 2.  
+
+
+# NSE Rates
+
+An important gene-level parameter is $\sigma(n)$, which reflects the probability that a ribosome successfully completes translation of a protein-coding sequence.
+$\sigma(n)$ is generally expected to correlate negatively with the length of a protein-coding sequence, as longer protein-coding sequences have more opportunities for nonsense errors to occur.
+
+It is difficult to assert the adequacy of PANSE for estimating $\sigma(n)$, as direct empirical measures of these probabilities do not exist (to the best of our knowledge).
+However, a study by Bonnin et al. Plos Comp. Bio. estimated the drop-off resilience of yeast protein-coding sequences using TASEP-based simulations (https://doi.org/10.1371/journal.pcbi.1005555) that were parameterized with polysome profiling data, waiting times based on tRNA abundances, and a nonsense error rate estimated from E. coli.
+As the drop-off resilience values of Bonnin et al. is essentially $\sigma(n)$, we expect these two values to be well-correlated.
+This is what we observe.
+
+```{r}
+hist.sigma <- ggplot(sigma,aes(Sigma)) +
+  geom_histogram()+
+  xlab("Pr(Complete Translation of ORF)") +
+  ylab("Count") +
+  ggtitle("Pr Ribosome Completes Translation Varies Greatly") + 
+  theme(aspect.ratio = 1,
+      axis.text = element_text(size=18))
+hist.sigma
+ggsave3(file=file.path(fig.dir, "genome_sigma-histogram.pdf"),plot = hist.sigma)
+
+length.vs.sigma <- ggplot(sigma,aes(x=Length,y=1-Sigma)) +
+  geom_point(aes(color=log10(Mean))) +
+  stat_cor(method="spearman",label.sep = "\n") +
+  xlab("Transcript Length") +
+  scale_x_log10() +
+  scale_y_log10() +
+  ylab(expression("Pr(NSE) = 1-"*sigma)) +
+  labs(color=expression("Log"["10"]*"(Gene Expr."~kappa*")"),size=expression("Log"["10"]*"(CDS Length)")) +
+  theme(#title = element_text(size=10),
+        ggside.axis.text = element_blank(),
+        ggside.axis.line = element_blank(),
+        ggside.axis.ticks = element_blank()) +
+  geom_xsidehistogram(fill="white",color="black") +
+  geom_ysidehistogram(fill="white",color="black")
+length.vs.sigma
+
+ggsave3(file = file.path(fig.dir, "cds-length_vs_sigma.pdf"),
+       plot = length.vs.sigma)
+
+expression.vs.sigma <- ggplot(sigma,aes(x=Mean,y=1-Sigma)) +
+  geom_point(aes(color=log10(Length))) +
+  stat_cor(method="spearman",label.sep = "\n") +
+  xlab("Total Initiation Rate"~kappa[g]^"'") +
+  scale_x_log10() +
+  scale_y_log10() +
+  ylab(expression("Pr(NSE) = 1-"*sigma)) +
+  labs(color=expression("Log"["10"]*"(CDS Length)"))+
+  theme(ggside.axis.text = element_blank(),
+        ggside.axis.line = element_blank(),
+        ggside.axis.ticks = element_blank()) +
+  geom_xsidehistogram(fill="white",color="black") +
+  geom_ysidehistogram(fill="white",color="black")
+expression.vs.sigma
+
+ggsave3(file = file.path(fig.dir, "expression_vs_sigma.pdf"),
+       plot = expression.vs.sigma)
+
+bonnin.vs.sigma <- ggplot(sigma,aes(x=drop_off_resilience,y=Sigma)) +
+  geom_point(aes(color=log10(Mean),size=log10(Length))) +
+  geom_abline(intercept=0,slope=1,linetype="dashed") +
+  stat_cor(method="spearman",label.sep="\n") +
+  xlab("Drop-off Resilience (Bonnin et al. 2017)") +
+  ylab(expression("Pr(No NSE) ="~sigma)) +
+  labs(color=expression("Log"["10"]*"(Gene Exp."~kappa*")"),size=expression("Log"["10"]*"(Length)")) +
+  theme(ggside.axis.text = element_blank(),
+        ggside.axis.line = element_blank(),
+        ggside.axis.ticks = element_blank()) +
+  geom_xsidehistogram(fill="white",color="black") +
+  geom_ysidehistogram(fill="white",color="black")
+
+bonnin.vs.sigma
+ggsave3(file = file.path(fig.dir, "bonnin_vs_sigma.pdf"),
+       plot = bonnin.vs.sigma)
+
+
+sigma.effects <- (length.vs.sigma | bonnin.vs.sigma) + plot_annotation(tag_levels = "A")
+sigma.effects
+ggsave3(file.path(fig.dir, "Figure_4.pdf"),plot=sigma.effects,width=15,height=6)
+
+```
+
+
+```{r}
+sigma.filt <- sigma %>% 
+  filter(!is.na(drop_off_resilience) & !is.na(RPKM))
+
+ppcor::pcor.test(x = sigma.filt$drop_off_resilience,y=sigma.filt$Sigma,z=log10(sigma.filt$Length),method="spearman")
+
+```
+
+
+## Variation in NSE Rates
+
+As a reference point, also get the posterior NSE Rate if we assume this parameter is the same across codons.
+
+```{r}
+same <- getParameterDataFrames("../01_results/00_panse_fits/2023-07-20_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_200_ramp_uniform_nse/final_restart/")
+
+
+same.nse <- same$Log.NSERate %>%
+  filter(Codon == "GCA") %>%
+  mutate(Codon = "All")
+
+```
+
+
+```{r fig.width=10,fig.height=10}
+aa.mass <- read_tsv("../00_data/01_correlates/aa_mass.txt")
+aa.properties <- read_tsv("../00_data/01_correlates/aa_properties.txt")
+
+nse.rate.df <- main.yeast.result$Log.NSERate %>% 
+  rowwise() %>%
+  mutate(Total.Stop.Neighbor = stopCodonNeighbor(Codon),
+         Stop.Neighbor.First = stopCodonNeighbor(Codon,1),
+         Stop.Neighbor.Second = stopCodonNeighbor(Codon,2),
+         Stop.Neighbor.Third = stopCodonNeighbor(Codon,3),
+         Property = case_when(
+              AA %in% c("A","I","L","M","V","F","W","Y") ~"Hydrophobic",
+              AA %in% c("N","C","Q","S","Z","T") ~ "Neutral",
+              AA %in% c("K","R","H","D","E") ~ "Charged",
+              AA %in% c("G","P") ~ "Other"
+  ),
+  AA.Codon=paste(AA,Codon,sep="-")) %>%
+  ungroup() %>%
+  left_join(aa.mass) %>%
+  left_join(aa.properties)
+
+base.info <- nse.rate.df %>% 
+  dplyr::select(!c(3:7))
+
+nse.pr.df <- main.yeast.result$Log.NSEPr %>% 
+  rowwise() %>%
+  mutate(Total.Stop.Neighbor = stopCodonNeighbor(Codon),
+         Stop.Neighbor.First = stopCodonNeighbor(Codon,1),
+         Stop.Neighbor.Second = stopCodonNeighbor(Codon,2),
+         Stop.Neighbor.Third = stopCodonNeighbor(Codon,3),
+         Property = case_when(
+              AA %in% c("A","I","L","M","V","F","W","Y") ~"Hydrophobic",
+              AA %in% c("N","C","Q","S","Z","T") ~ "Neutral",
+              AA %in% c("K","R","H","D","E") ~ "Charged",
+              AA %in% c("G","P") ~ "Other"
+  ),
+  AA.Codon=paste(AA,Codon,sep="-")) %>%
+  ungroup() %>%
+  left_join(base.info)
+
+
+```
+
+```{r fig.height=12}
+
+sorted.nse.rate.df <- nse.rate.df %>%
+  arrange(AA,Mean) %>%
+  mutate(Codon = factor(Codon,levels = unique(Codon)))
+
+
+nse.rate.by.codon <- ggplot(sorted.nse.rate.df,aes(x=Codon,y=Mean)) +
+    geom_point(aes(color=Total.Stop.Neighbor)) +
+  ylab(expression("Log"[10]*"(NSE Rate)")) +
+  scale_y_continuous(labels = function(x) label_parsed(paste("10^",x))) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1,size=14),
+        axis.title = element_text(size=18)) +
+  labs(color="# of Stop Codon\nNeighbors") +
+  geom_errorbar(aes(x=Codon,ymin=`2.5%`,ymax=`97.5%`,color=as.character(Total.Stop.Neighbor))) +
+  geom_hline(yintercept = unlist(same.nse$Mean)) +
+  scale_color_viridis_d() +
+  geom_hline(yintercept = unlist(same.nse$`2.5%`),linetype="dashed") +
+  geom_hline(yintercept = unlist(same.nse$`97.5%`),linetype="dashed") +
+  facet_wrap(~AA,scales="free_x",nrow=5,ncol=5) 
+nse.rate.by.codon
+
+ggsave3(file = file.path(fig.dir, "NSE-rate_vs_codon.pdf"),
+       plot = nse.rate.by.codon,
+       scale = 1          )
+
+```
+
+```{r fig.height=12}
+sorted.nse.pr.df <- nse.pr.df %>%
+  arrange(AA,Mean) %>%
+  mutate(Codon = factor(Codon,levels = unique(Codon)))
+
+nse.pr.by.codon <- ggplot(sorted.nse.pr.df %>%
+                           filter(!(AA %in%"Z")),
+                         aes(x=Codon,y=Mean)) +
+    geom_point(aes(color=Total.Stop.Neighbor)) +
+  ylab("Pr(NSE/elongation)") +
+  scale_y_continuous(labels = function(x) label_parsed(paste("10^",x))) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1,size=8),
+        aspect.ratio = 0.75,
+        axis.title = element_text(size=18)) + #main axes labels
+  labs(color="# of Stop Codon\nNeighbors") +
+  geom_errorbar(aes(x=Codon,ymin=`2.5%`,ymax=`97.5%`,color=as.character(Total.Stop.Neighbor))) +
+  geom_hline(yintercept = unlist(same.nse$Mean)) +
+  geom_hline(yintercept = unlist(same.nse$`2.5%`),linetype="dashed") +
+  geom_hline(yintercept = unlist(same.nse$`97.5%`),linetype="dashed") +
+  scale_color_viridis_d() +
+  facet_wrap(~AA,scales="free_x",nrow=5,ncol=5)  + 
+  ggtitle("Variation in Pr(NSE/elongation) Across Codons")
+nse.pr.by.codon
+
+ggsave3(file = file.path(fig.dir, "NSE-pr_vs_codon.pdf"),
+       plot = nse.pr.by.codon,
+       scale = 1 )
+
+## TODO Create codon table/Heat map of these values
+
+```
+
+We observe that there is a negative correlation between the mean elongation rate of a codon and its corresponding NSE Rate. This means slower codons in yeast generally are also more prone to nonsense errors because of having both longer waiting times and a higher innate propensity to cause an nonsense error. 
+
+
+```{r}
+nserate.vs.wt <- main.yeast.result$Wait.Time %>%
+  left_join(main.yeast.result$NSERate,by=c("AA","Codon"),suffix=c("_Wait.Time","_NSERate")) %>%
+  mutate(NSE.Prob = Mean_NSERate/(Mean_NSERate + (1/Mean_Wait.Time))) %>%
+  left_join(main.yeast.result$Log.NSERate,by=c("AA","Codon")) %>%
+  dplyr::rename(Mean_Log.NSERate = Mean)
+
+nse.rate.vs.elong.rate <- ggplot(nserate.vs.wt,aes(x=1/Mean_Wait.Time,y=Mean_NSERate,label=Codon)) +
+  geom_point()+
+  geom_text_repel() +
+  xlab("Elongation Rate") +
+  ylab("NSE Rate") +
+  scale_x_log10() +
+  scale_y_log10() +
+  theme(aspect.ratio=1) +
+  stat_cor(method="spearman",
+           label.sep="\n",
+           label.y.npc = "bottom",
+           label.x = log10(0.2))
+nse.rate.vs.elong.rate
+
+ggsave3(file = file.path(fig.dir, "NSE-rate_vs_elong-rate.pdf"),
+       plot = nse.rate.vs.elong.rate,
+       scale = 1)
+
+
+
+```
+
+
+
+### Linear models to try to explain variation in NSE Rates
+
+Based on the stepwise regressions, it appears that including the weights would impact our model interpretation. 
+
+```{r}
+nse.df.tmp = list(Rate = nse.rate.df, Pr = nse.pr.df)
+
+nse.df.lst <- lapply(nse.df.tmp, function(x) {
+  x %>% 
+  separate(Codon,into=c("First","Second","Third"),sep="(?<=[A-Z])",remove = F) %>%
+  mutate(Stop.Neighbor.First.Yes = ifelse(Stop.Neighbor.First == 0,"No","Yes"),
+         Stop.Neighbor.Second.Yes = ifelse(Stop.Neighbor.Second == 0,"No","Yes"),
+         Stop.Neighbor.Third.Yes = ifelse(Stop.Neighbor.Third == 0,"No","Yes"),
+         Stop.Neighbor.First = as.factor(Stop.Neighbor.First),
+         Stop.Neighbor.Second = as.factor(Stop.Neighbor.Second),
+         Stop.Neighbor.Third = as.factor(Stop.Neighbor.Third),
+         Stop.Neighbor.Yes = ifelse(Stop.Neighbor.First.Yes == "Yes" | Stop.Neighbor.Second.Yes == "Yes" | Stop.Neighbor.Third.Yes == "Yes","Yes","No")
+)
+})
+
+names(nse.df.lst)
+
+model.fit.lst <- lapply(nse.df.lst,
+                         function(x) {
+                           lm(Mean ~ First + Second + Third + Stop.Neighbor.First + Stop.Neighbor.Second + Stop.Neighbor.Third + Property ,data=x,weights = 1/(Std.Dev^2)) })
+
+#alex.w.weights.best.fits <-
+#  MASS::stepAIC(model.fit.lst[["Pr"]],
+#                direction = "both",
+#                trace = FALSE,
+#                criteria="AIC")
+
+#alex.w.weights.best.fits$anova
+
+```
+
+```{r}
+
+model <-model.fit.lst$Rate
+plot(model)
+summary(model)
+car::vif(model)
+
+#title <- "Explaining Variation in\nPr(NSE/elongation)"
+
+###Alex: made with the help of ChatGPT
+coef_data <- tidy(model,conf.int = T)
+
+coef_data <- coef_data %>%
+  mutate(term=case_when(
+    term == "(Intercept)" ~ "Intercept (Reference class)",
+    term == "FirstC" ~ "1st Position - C",
+    term == "FirstG" ~ "1st Position - G",
+    term == "FirstT" ~ "1st Position - T",
+    term == "SecondC" ~ "2nd Position - C",
+    term == "SecondG" ~ "2nd Position - G",
+    term == "SecondT" ~ "2nd Position - T",
+    term == "ThirdC" ~ "3rd Position - C",
+    term == "ThirdG" ~ "3rd Position - G",
+    term == "ThirdT" ~ "3rd Position - T",
+    term == "Stop.Neighbor.First1" ~ "1st Position - 1 Stop Neighbor",
+    term == "Stop.Neighbor.First2" ~ "1st Position - 2 Stop Neighbor",
+    term == "Stop.Neighbor.Second1" ~ "2nd Position - 1 Stop Neighbor",
+    term == "Stop.Neighbor.Second2" ~ "2nd Position - 2 Stop Neighbor",
+    term == "Stop.Neighbor.Third1" ~ "3rd Position - 1 Stop Neighbor",
+    term == "Stop.Neighbor.Third2" ~ "3rd Position - 2 Stop Neighbor",
+    term == "PropertyHydrophobic" ~ "AA Property - Hydrophobic",
+    term == "PropertyNeutral" ~ "AA Property - Neutral",
+    term == "PropertyOther" ~ "AA Property - Other",
+  ))
+
+plot_data <- data.frame(
+  term = coef_data$term,
+  estimate = coef_data$estimate,
+  conf.low = coef_data$conf.low,
+  conf.high = coef_data$conf.high,
+  #sig = ifelse(coef_data$p.value < 0.05,"p < 0.05","Not significant")
+  sig = ifelse(coef_data$p.value < 0.05,"*","")
+)
+
+reg.plot <- ggplot(plot_data, aes(x = term, y = estimate,fill=sig)) +
+  geom_bar(stat = "identity", color = "black", width = 0.7) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.25, position = position_dodge(0.7)) +
+  labs(x = "Variables",
+       y = "Coefficients",
+       fill="Significant") +
+  theme(plot.title = element_text(hjust=-1)) +
+  coord_flip() +
+  geom_hline(yintercept = 0)
+  #theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+
+reg.plot <- ggplot(plot_data, aes(x = term, y = estimate,shape = sig)) +
+  geom_bar(stat = "identity", color = "black", width = 0.7,fill="white",color="black") +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.25, position = position_dodge(0.7)) +
+  labs(x = "Variables",
+       y = "Coefficients",
+       fill="Significant") +
+  theme(plot.title = element_text(hjust=-1)) +
+  coord_flip() +
+  geom_hline(yintercept = 0) +
+  geom_point(aes(y = ifelse(estimate > 0, conf.high + 0.5, conf.low - 0.5)),
+             position=position_dodge(0.9), 
+             show.legend=FALSE) +
+  scale_shape_manual(values = c(NA, 8))
+  #theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+reg.plot
+
+  
+
+reg.plot
+
+ggsave3(file = file.path(fig.dir, "regression-analysis-of-rate.pdf"),
+       plot = reg.plot,
+       scale = 1.25)
+
+```
+
+```{r fig.width=8,fig.height=6}
+p <- (nse.rate.by.codon | reg.plot) + 
+  plot_annotation(tag_levels = "A") + 
+  plot_layout(widths=c(2,1))
+p
+
+
+ggsave3(file.path(fig.dir, "Figure_2.pdf"),p,width=17,height=12)
+
+```
+
+```{r}
+xtable::xtable(coef_data)
+```
+
+
+
+## Selection against nonsense errors
+
+### NSE Rates vs. Position
+Natural selection against nonsense errors is expected to result in codons with higher NSE probabilities being located closer to the 5'-end of a transcript.
+This is due to weaker selection against nonsense error at the 5'-ends, where the occurrence of a nonsense error is expected to be generally less costly to the cell. 
+Thus, a negative correlation between NSE rates and the average position of a codon is expected.
+To test this, all positions in a codon are normalized relative to length of a protein-coding sequence such that each "normalized" position is a value falling into the range (0,1]. 
+A normalized position of 0.5 is roughly the center of the gene.
+If selection against nonsense errors is sufficiently strong, codons with higher NSE rates are generally expected have an average normalizing position < 0.5.
+We observe a negative correlation between NSE rates and the the average position of a codon, such that codons with higher NSE rates are found closer to the 5'-end of a transcript, consistent with the expectation that selection against nonsense errors is occurring and sufficiently strong enough to shape codon usage patterns in yeast. 
+
+ 
+
+
+```{r}
+nserate.vs.pos <- compareParameterVsPosition(full.yeast.data,
+                                         main.yeast.result,
+                                         parameter.name="Log.NSERate",
+                                         xlab="Log10(NSE Rate)",
+                                         title="Codon NSE Rates vs. Average Position",
+                                         include.stop.codon.neighbor = F,
+                                         flip.coord=T,
+                                         correlation.label.pos = c(-3,0.53))
+
+nserate.vs.pos <- nserate.vs.pos + 
+  theme(aspect.ratio = 1)
+nserate.vs.pos
+
+
+
+nse.prob.vs.pos <- compareParameterVsPosition(full.yeast.data,
+                                         main.yeast.result,
+                                         parameter.name="Log.NSEProb",
+                                         xlab="Log10(Pr(NSE))",
+                                         title="",
+                                         include.stop.codon.neighbor = F,
+                                         flip.coord=T,
+                                         correlation.label.pos = c(-2.5,0.53))
+
+nse.prob.vs.pos <-nse.prob.vs.pos + 
+  theme(plot.title = element_blank()) +
+  xlim(c(NA,-1.5)) +
+  geom_text(aes(label=ifelse(Codon %in% c("TGG","TGT","TGC"),Codon,NA))) +
+  annotate("text",y=0.47,x=-1.75,label="5'-bias",size=8) +
+  annotate("text",y=0.53,x=-1.75,label="3'-bias",size=8) 
+  
+#nse.vs.pos <- nse.vs.pos + labs(color="Number of stop codon\nneighbors")
+nse.prob.vs.pos 
+
+
+ggsave3(file = file.path(fig.dir, "nse-pr-vs-position.pdf"),
+       plot = nse.prob.vs.pos)
+
+```
+
+
+ 
+
+```{r}
+getNullStats <- function(null.dist)
+{
+  null <- null.dist %>%
+    summarize(Mean.Intercept = mean(Intercept),
+              Mean.Slope = mean(Slope),
+              `Intercept_0.025` = quantile(Intercept,0.025),
+              `Intercept_0.975` = quantile(Intercept,0.975),
+              `Slope_0.025` = quantile(Slope,0.025),
+              `Slope_0.975` = quantile(Slope,0.975)
+            )
+  return(null)
+}
+
+null.by.aa <- read_csv("../01_results/02_null_distributions/00_probability_elongation_position/expected_prob_elongation_position_aa_within_cds_permutation.csv")
+null.by.gene <- read_csv("../01_results/02_null_distributions/00_probability_elongation_position/expected_prob_elongation_position_within_cds_permutation.csv")
+null.complete <- read_csv("../01_results/02_null_distributions/00_probability_elongation_position/expected_prob_elongation_position_across_cds_permutation.csv")
+
+
+
+null.by.aa.summary <- getNullStats(null.by.aa)
+null.by.gene.summary <- getNullStats(null.by.gene)
+null.complete.summary <- getNullStats(null.complete)
+
+null.list <- list("Randomized by AA" = null.by.aa.summary,
+                  "Randomized by CDS" = null.by.gene.summary,
+                  "Randomized across CDS" = null.complete.summary) %>%
+  bind_rows(.id="Genome") %>%
+  mutate(Genome = factor(Genome,levels=c("Real","Randomized by AA","Randomized by CDS","Randomized across CDS")))
+
+```
+
+
+
+```{r}
+
+predictNull <- function(null.df,x=seq(1:500))
+{
+  predict.null <- null.df$Mean.Intercept + null.df$Mean.Slope * log(x)
+  predict.null.lower.ci <-  null.df$Intercept_0.025 + null.df$Slope_0.025 * log(x)
+  predict.null.upper.ci <-  null.df$Intercept_0.975+ null.df$Slope_0.975 * log(x)
+  predict.null <- data.frame(Position = x,
+                             Sigma.i=predict.null,
+                             Lower=predict.null.lower.ci,
+                             Upper=predict.null.upper.ci)
+  return(predict.null)
+}
+
+sigma.avg.pos <- full.yeast.data %>% 
+  mutate(Prob.Successful = (1/NSERate)/(1/NSERate + Wait.Time),
+         Prob.NSE = 1 - Prob.Successful) %>%
+  filter(Position <= 500) %>%
+  group_by(Position) %>%
+  summarize(Sigma.i = prod(Prob.Successful)^(1/n()),
+            Error.i = mean(Prob.NSE))
+
+
+nse.prob <- ggplot(sigma.avg.pos,aes(x=Position,y=Error.i)) +
+  geom_line() +
+  geom_smooth(method = "lm", formula = y ~ log(x),se=F) +
+  stat_regline_equation(formula = y ~ log(x),label.x = 350,show.legend = F) +
+  ylab("Probability of NSE at Position") +
+  scale_color_viridis_d() +
+  # scale_color_manual(values=c("Real"="black",
+  #                             "Randomized by AA" = "red",
+  #                             "Randomized by CDS" = "blue",
+  #                             "Randomized across CDS"="purple")) +
+  ggtitle("Across-gene Average Probability of NSE by Position")
+nse.prob
+
+ggsave3(file = file.path(fig.dir, "mRNA-vs-PANSE.pdf"),
+       plot = mrna.vs.panse)
+
+predict.null.aa <- predictNull(null.by.aa.summary)
+
+predict.null.gene <- predictNull(null.by.gene.summary)
+
+predict.null.genome <- predictNull(null.complete.summary)
+
+real.vs.null <- list("Real" = sigma.avg.pos,
+                     "Randomized by AA" = predict.null.aa,
+                     "Randomized by CDS" = predict.null.gene,
+                     "Randomized across CDS" = predict.null.genome) %>%
+  bind_rows(.id="Genome") %>%
+  mutate(Genome = factor(Genome,levels=c("Real","Randomized by AA","Randomized by CDS","Randomized across CDS")))
+
+
+prob.by.pos <- ggplot(real.vs.null,aes(x=Position,y=Sigma.i,color=Genome)) +
+  geom_line() +
+  geom_smooth(method = "lm", formula = y ~ log(x),se=F) +
+  stat_regline_equation(formula =y ~ log(x),label.x = 10,show.legend = F,aes(label = sub("x", "log(x)", ..eq.label..))) +
+  ylab("Mean Pr(No NSE)") +
+  scale_color_viridis_d()
+  # scale_color_manual(values=c("Real"="black",
+  #                             "Randomized by AA" = "red",
+  #                             "Randomized by CDS" = "blue",
+  #                             "Randomized across CDS"="purple"))
+prob.by.pos
+```
+
+
+
+
+```{r fig.width=8,fig.height=3}
+total <- (nse.prob.vs.pos | prob.by.pos) + plot_annotation(tag_levels = "A") + plot_layout(widths = c(1, 2))
+total
+ggsave3(file.path(fig.dir, "Figure_5.pdf"),total,width = 16,height=6)
+
+```
+
+```{r}
+
+real.model <- lm(Sigma.i ~ log(Position),data=sigma.avg.pos) %>%
+  broom::tidy()
+
+real.vs.null.hist <- list("Randomized by AA" = null.by.aa,
+                     "Randomized by CDS" = null.by.gene,
+                     "Randomized across CDS" = null.complete) %>%
+  bind_rows(.id="Genome") %>%
+  mutate(Genome = factor(Genome,levels=c("Real","Randomized by AA","Randomized by CDS","Randomized across CDS")))
+
+perm.hist <- ggplot(real.vs.null.hist,aes(x=Slope)) +
+  geom_histogram(aes(fill=Genome),color="black",position="identity",alpha=0.7) + 
+  scale_fill_viridis_d() +
+  geom_vline(data=subset(real.model,term == "log(Position)"),
+             aes(xintercept=estimate),
+             linetype="dashed") +
+  xlim(NA,10^-5) +
+  ylab("Count")
+perm.hist
+
+p.vals <- real.vs.null.hist %>% 
+  group_by(Genome) %>%
+  summarize(p.value = (sum(Slope > real.model[2,"estimate"])+1)/(n()+1))
+
+
+ggsave3(file.path(fig.dir, "permutation_null_distribution_slope.pdf"),perm.hist)
+```
+
+
+### Impact of gene expression
+
+
+Additionally, natural selection against nonsense errors is expected to result in a positive correlation between $\sigma(n)$ and the initiation rate $\phi$ of a protein-coding sequence, as highly expressed genes are expected to be under stronger selection against nonsense errors. 
+As a proxy for initiation rates $\phi$, we will use mRNA abundances as a proxy.
+These estimates are independent of the analysis with PANSE.
+We observe that $\sigma(n)$, as well as the per-codon average $\sigma$ (i.e. the probability of a nonsense error at any given codon) is positively correlated with mRNA abundances.
+This is consistent with natural selection against nonsense errors being stronger in more highly-expressed genes.
+
+```{r}
+
+mrna.vs.sigma <- ggplot(sigma,aes(x=RPKM,y=Sigma)) +
+  geom_point(aes(color=log10(Length))) +
+  stat_cor(method="spearman",label.sep="\n",label.y.npc = "bottom") +
+  xlab("mRNA Abundance (RPKM)") +
+  scale_x_log10() +
+  ylab(expression("Pr(No NSE) ="~sigma)) +
+  labs(color=expression("Log"["10"]*"(Length)")) +
+  theme(ggside.axis.text = element_blank(),
+        ggside.axis.line = element_blank(),
+        ggside.axis.ticks = element_blank()) +
+  geom_xsidehistogram(fill="white",color="black") +
+  geom_ysidehistogram(fill="white",color="black")
+mrna.vs.sigma
+
+mrna.vs.sigma.avg <- ggplot(sigma,aes(x=RPKM,y=Sigma^(1/Length))) +
+  geom_point(aes(color=log10(Length))) +
+  stat_cor(method="spearman",label.sep="\n",label.x.npc = "center",label.y.npc = "bottom") +
+  xlab("mRNA Abundance (RPKM)") +
+  scale_x_log10() +
+  ylab(expression("Gene-wise Average Probability of Elongating per Position")) +
+  labs(color=expression("Log"["10"]*"(Length)")) +
+  theme(ggside.axis.text = element_blank(),
+        ggside.axis.line = element_blank(),
+        ggside.axis.ticks = element_blank()) +
+  geom_xsidehistogram(fill="white",color="black") +
+  geom_ysidehistogram(fill="white",color="black")
+mrna.vs.sigma.avg
+
+
+
+```
+
+```{r}
+sigma.filt <- sigma %>% 
+  filter(!is.na(drop_off_resilience) & !is.na(RPKM))
+
+ppcor::pcor.test(x = log10(sigma.filt$RPKM),y=sigma.filt$Sigma,z=log10(sigma.filt$Length),method="spearman")
+
+
+```
+
+```{r fig.width=6,fig.height=2}
+sigma.var.genes <- (length.vs.sigma | mrna.vs.sigma)
+sigma.var.genes
+```
+
+We also expect that codons with higher NSE rates will generally be selected against.
+We can test this by comparing NSE Rates to $\Delta\eta$ from ROC-SEMPPR
+
+
+```{r}
+deta <- read_csv("../00_data/01_correlates/ROC_Estimates/saccharomyces_cerevisiae.max.cds_Selection.csv") %>% 
+  dplyr::rename(DEta = Mean)
+
+
+log.nse.prob <- main.yeast.result$Log.NSEProb %>% dplyr::rename(Log.NSEProb=Mean)
+log.nserate <- main.yeast.result$Log.NSERate %>% dplyr::rename(Log.NSERate=Mean)
+wait.time <- main.yeast.result$Wait.Time %>% dplyr::rename(Wait.Time=Mean)
+
+
+ 
+deta <- deta %>% 
+  left_join(log.nserate,by=c("AA","Codon"),suffix=c("_ROC","_PANSE_NSERate")) %>%
+  left_join(log.nse.prob,by=c("AA","Codon")) 
+  
+
+deta <- deta %>% 
+  mutate(Reference = ifelse(DEta == 0,1,0)) %>% 
+  group_by(AA) %>% 
+  mutate(Rel.Log.NSERate = Log.NSERate - Log.NSERate[Reference == 1],
+         `Rel_2.5%_PANSE_NSERate` = `2.5%_PANSE_NSERate` - Log.NSERate[Reference == 1],
+         `Rel_97.5%_PANSE_NSERate` = `97.5%_PANSE_NSERate` - Log.NSERate[Reference == 1],
+         Rel.Log.NSEProb = Log.NSEProb - Log.NSEProb[Reference == 1],
+         `Rel_2.5%_PANSE_NSEProb` = `2.5%` - Log.NSEProb[Reference == 1],
+         `Rel_97.5%_PANSE_NSEProb` = `97.5%` - Log.NSEProb[Reference == 1]) %>%
+  filter(Reference != 1) %>%
+  ungroup() %>%
+  rowwise() %>%
+  mutate(Stop.neighbor = stopCodonNeighbor(Codon)) 
+
+sel.vs.nse <- ggplot(deta,aes(y=Rel.Log.NSEProb,x=DEta)) +
+  geom_point() +
+  stat_cor(method="spearman",label.sep="\n",label.x = 1,label.y.npc = "bottom") +
+  geom_errorbarh(aes(xmin=`2.5%_ROC`,xmax=`97.5%_ROC`),alpha=0.5) +
+  geom_errorbar(aes(ymin=`Rel_2.5%_PANSE_NSEProb`,ymax=`Rel_97.5%_PANSE_NSEProb`),alpha=0.5) +
+  xlab(expression("Selection Against Pausing"~Delta*eta~"(ROC-SEMPPR)")) +
+  ylab("Relative Log10(Pr(NSE)) (PANSE)")
+
+sel.vs.nse
+
+```
+
+
+We also might expect the probability of elongation across positions to vary across genes based on gene expression.
+Binning genes into the lower quantile (< 25%), interquantile (25% - 75%), upper quantile (> 75%), we observe that the average probability of elongation by position across genes is greatest in the high expression genes and lowest in the low expression genes, as expected.
+A regression was performed to quantify the change in average probability of elongation per position across genes.
+Interestingly, the slope of this regression line was greatest in the moderate expression genes. 
+
+
+```{r}
+cut.points <- quantile(mrna$RPKM,c(0.25,0.75))
+sigma.per.pos.per.bin <- full.yeast.data %>% 
+  mutate(Prob.Successful = (1/NSERate)/(1/NSERate + Wait.Time)) %>%
+  filter(Position <= 500) %>%
+  left_join(mrna) %>%
+  filter(!is.na(RPKM)) %>%
+  mutate(bin = Hmisc::cut2(RPKM,cuts = cut.points)) %>%
+  group_by(bin,Position) %>%
+  dplyr::summarize(Sigma.i = prod(Prob.Successful)^(1/n())) %>%
+  mutate(Log.Odds = log(Sigma.i/(1-Sigma.i)),
+         bin = case_when(
+           bin == "[    0.0,   24.5)" ~ "Low (Bottom 25%)",
+           bin == "[   24.5,   99.1)" ~ "Moderate (25% - 75%)",
+           bin == "[   99.1,19774.1]" ~ "High (Top 25%)"
+         ),
+         bin = fct_relevel(bin,c("High (Top 25%)","Moderate (25% - 75%)","Low (Bottom 25%)"))
+         )
+
+prob.by.pos.by.expr <- ggplot(sigma.per.pos.per.bin,aes(x=Position,y=Sigma.i,color=bin)) +
+  geom_line() +
+  geom_smooth(method = "lm", formula = y ~ log(x)) +
+  stat_regline_equation(formula =y ~ log(x),label.x = 10,show.legend = F,aes(label = sub("x", "log(x)", ..eq.label..))) +
+  stat_cor(label.x.npc = "center",method="spearman",show.legend = F) +
+  ylab("Mean Pr(No NSE)") +
+  scale_color_viridis_d() +
+  #ggtitle("Probability of Successful Elongation by Position:\nImpact of Gene Expression") +
+  labs(color = "Gene Expression Bin")  + 
+  ylim(c(NA,1)) 
+prob.by.pos.by.expr
+
+odds.by.pos.by.expr <- ggplot(sigma.per.pos.per.bin,aes(x=Position,y=Log.Odds,color=bin)) +
+  geom_line() +
+  geom_smooth(method = "lm", formula = y ~ log(x)) +
+  stat_regline_equation(formula =y ~ log(x),label.x = 10,show.legend = F) +
+  stat_cor(label.x.npc = "center",method="spearman",show.legend = F) +
+  scale_color_viridis_d() +
+  ylab("Log Odds") +
+  #ggtitle("Odds of successful elongation increases by position:\nimpact of gene expression") +
+  labs(color = "Gene Expression Bin")
+odds.by.pos.by.expr
+
+
+```
+
+
+```{r fig.width=12,fig.height=12}
+mrna.sigma.total <- ((mrna.vs.sigma | sel.vs.nse) / prob.by.pos.by.expr) + plot_annotation(tag_level = "A") 
+mrna.sigma.total
+ggsave3(file.path(fig.dir, "Figure_6.pdf"),mrna.sigma.total,width=16,height=12)
+
+```
+
+

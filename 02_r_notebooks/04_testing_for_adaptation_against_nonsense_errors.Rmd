@@ -1,0 +1,722 @@
+---
+title: "Testing for adaptation against nonsense errors"
+author: "Alexander Cope"
+date: "2024-05-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.show="hold", out.width="50%", warning = FALSE)
+library(tidyverse)
+library(AnaCoDa)
+library(viridis)
+plotting.target <- switch(1,
+                          "paper",
+                          "talk")
+source("ggplot2.settings.R")
+
+## Need to install reticulate package for python tools
+##    reticulate::install_miniconda()
+##     reticulate::conda_install('r-reticulate', 'python-kaleido')
+##     reticulate::conda_install('r-reticulate', 'plotly', channel = 'plotly')
+##.   reticulate::use_miniconda('r-reticulate')
+
+suppressMessages(source("helperFunctions.R"))
+
+
+
+
+```
+
+# Set up 
+
+```{r}
+main.yeast.data.path <- "../00_data/00_panse_input/2023-06-12_weinberg_etal_2016_all_frames_200_ramp.csv"
+full.yeast.data.path <- "../00_data/00_panse_input/2023-01-05_weinberg_etal_2016_all_frames_0_ramp.csv"
+main.yeast.result.path <- "../01_results/00_panse_fits/2023-07-20_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_200_ramp_run_2/final_restart/"
+
+main.yeast.data <- read_csv(main.yeast.data.path)
+full.yeast.data <- read_csv(full.yeast.data.path)
+
+main.yeast.result <- getParameterDataFrames(main.yeast.result.path)
+
+bonnin <- read_csv("../00_data/01_correlates/bonnin_etal_yeast_init_rates_dro_off_resilience.csv",na = "#N/A")
+mrna <- read_tsv("../00_data/01_correlates/Weinberg_etal_2016_processed/GSE75897_RiboZero_RPKMs.txt",col_names = c("GeneID","RPKM"))
+
+init.rates <- read_tsv("../00_data/01_correlates/Weinberg_etal_2016_processed/weinberg_synthesis.txt") %>% 
+  dplyr::select(ORF,S) %>%
+  dplyr::rename(GeneID=ORF)
+roc.phi <- read_csv("../00_data/01_correlates/ROC_Estimates/saccharomyces_cerevisiae.max.cds_Phi.csv") %>%
+  dplyr::select(GeneID,Mean)
+
+ribo.wt <- read_tsv("../00_data/01_correlates/Weinberg_etal_2016_processed/weinberg_ribo_dens.tsv")
+dao.duc.elong.rates <- read_csv("../00_data/01_correlates/dao_duc_and_song_ribosome_elong_rates.csv") # from Dao Duc and Song Plos Genetics 2018
+deta <- read_csv("../00_data/01_correlates/ROC_Estimates/saccharomyces_cerevisiae.max.cds_Selection.csv") %>%
+  dplyr::rename(DEta = Mean)
+
+## Calculate $\sigma(n)$
+
+full.yeast.data <- full.yeast.data %>%
+  left_join(main.yeast.result$Wait.Time %>% dplyr::select(Codon,Mean) %>% dplyr::rename(Wait.Time = Mean),by="Codon") %>%
+  left_join(main.yeast.result$NSERate %>% dplyr::select(Codon,Mean) %>% dplyr::rename(NSERate = Mean),by="Codon")
+
+sigma <- full.yeast.data %>% 
+  mutate(Prob.Successful = (1/NSERate)/(1/NSERate + Wait.Time)) %>%
+  group_by(GeneID) %>%
+  dplyr::summarize(Sigma = prod(1*Prob.Successful),
+            Length=n()) %>%
+  left_join(main.yeast.result$Phi %>% dplyr::select(GeneID,Mean) %>% dplyr::rename(Phi = Mean),by="GeneID")
+
+sigma <- sigma %>%
+  left_join(bonnin, by="GeneID") %>%
+  left_join(mrna,by="GeneID") %>%
+  left_join(init.rates,by="GeneID") %>%
+  left_join(roc.phi, by="GeneID")
+
+
+```
+
+# Expected cost of a nonsense error
+
+A key question is to test if protein-coding sequences are adapted to reduce the cost of nonsense errors.
+We can calculate the expected energetic cost of a nonsense error by building off Eq. (2) from Gilchrist MBE 2007.
+This equation is modified to also account for the effects of pausing of a codon.
+Let $a_1 = 2$ represent the initiation cost, $a_2 = 4$ the elongation cost, $C$ the energetic cost of ribosome pausing, $b_i$ the NSE rate of codon $i$, and $\omega_i$ the waiting time of codon $i$, then the expected energetic cost $\zeta$ of a nonsense error for a protein-coding sequence $\vec{c}$ of length $N$ is 
+
+\[
+\zeta(\vec{c}) = \frac{1}{1-\sigma(N)}\sum_{i=1}^N\left(\left(a_1 + a_2 * (i - 1) + C\sum_{j=1}^{i-1}\omega_j\right) * \sigma(i-1) * \frac{b_i}{b_i + 1/\omega_i}\right)
+\]
+
+To estimate $C$, we take two approaches. One is based on estimates of the cost of ribosome assembly (see `05_estimating_ribosomal_degradation_rates.Rmd`), which is our primary estimate. The other is based comparing relative waiting time estimates from ribosome densities to $\Delta\eta$ estimated by ROC-SEMPPR using the formula and take the median across all codons.
+Values for $q$ and $N_e$ were taken from previous publications from the Gilchrist lab. 
+
+\[
+C = \text{median}(\Delta\eta/(2N_eq\Delta\omega))
+\]
+
+```{r}
+if (!require("feather")) 
+{
+  install.packages("feather")
+} else {
+  library(feather)
+}
+
+
+null.files <- c("../01_results/02_null_distributions/2024-07-17_expected_nse_cost_null_distributions_cost_per_nse_and_overall_2023_07_20_post_200_fit_full_gene_with_proper_waiting_time_units.feather")
+nulls <- lapply(null.files,read_feather) %>% bind_rows()
+
+
+## Gilchrist MBE 2007 provide an equation for the expected cost per nse and the expected cost of NSEs overall. These correspond to
+## equations (2) and (4), respectively. We are more concerned with the overall cost, but can switch to the per NSE cost by changing
+## ".overall" to "per.nse" in contains().
+nulls.overall <- nulls %>%
+  dplyr::select(GeneID,Result.file.path,Initiation.cost.a1,Elongation.cost.a2,C,w.0,Target.elongation.rate,contains(".overall"))
+```
+
+
+### Setting up parameters of interest for calculating expected cost 
+
+```{r}
+a.1 <- 4
+a.2 <- 4
+w.0 <- 10.8
+target.mean.elong.rate <- 9.3 #codon/s based on Shah et al. 2013 and Arava et al. 2013, Dao-Duc and Song 2018
+Ne <- 13600000 ## S. paradoxus effective pop. size
+q <- 4.19*10^-7 ## from Gilchrist 2007 MBE, but this does include NSE cost
+
+main.yeast.result.path <- "../01_results/00_panse_fits/2023-07-20_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_200_ramp_run_2/final_restart/"
+results.files <- main.yeast.result.path
+include.waiting.times <- c(TRUE)
+
+deta.file <- "../00_data/01_correlates/ROC_Estimates/saccharomyces_cerevisiae.max.cds_Selection.csv"
+```
+
+```{r}
+
+wait.time.panse <- main.yeast.result$Wait.Time %>%
+  dplyr::rename(Wait.Time = Mean)
+
+wait.time.unit.codon.per.sec <- rescalePANSEWaitingTimes(wait.time.panse,
+                                                         target.mean.elong.rate = target.mean.elong.rate)
+
+dist.C <- calculateCDistribution(wait.time.unit.codon.per.sec,
+                                 Ne = Ne,
+                                 q = q,
+                                 deta.file = deta.file)
+
+C.roc <- calculateMedianC(dist.C,include.discrepancy.codons = T)
+C.assembly <- 5.5
+C <- c(C.roc,C.assembly)
+
+```
+
+
+
+```{r}
+
+input.arguments <- crossing(panse.result.file.path = results.files,
+                            a.1 = a.1,
+                            a.2 = a.2,
+                            C = C,
+                            w.0 = w.0,
+                            target.mean.elong.rate=target.mean.elong.rate)
+
+
+mrna <- read_tsv("../00_data/01_correlates/Weinberg_etal_2016_processed/GSE75897_RiboZero_RPKMs.txt",col_names = c("GeneID","RPKM"))
+rfp <- read_csv("../00_data/00_panse_input/00_unfiltered_genes/weinberg_etal_2016_all_genes.csv")
+if ("gene" %in% colnames(rfp))
+{
+  rfp <- rfp %>% dplyr::rename(GeneID=gene)
+}
+rfp<- rfp %>%
+  rowwise() %>%
+  mutate(AA=codonToAA(Codon)) %>%
+  ungroup() %>%
+  filter(!GeneID %in% c("Q0080","Q0130"))
+
+
+ expected.cost.df <- pmap(input.arguments,expectedCost,rfp=rfp) %>% 
+  bind_rows() 
+```
+Here, we will focus on the estimate of C based on ribosome assembly cost.
+
+```{r}
+expected.cost.df <- expected.cost.df %>% 
+  left_join(mrna,by = "GeneID") %>%
+  #dplyr::select(-Expected.variable.cost.per.nse) %>%
+  dplyr::rename(Total.cost = Expected.cost.overall) %>%
+  mutate(C.estimation = ifelse(C == as.character(C.assembly),"Assembly","ROC"))
+
+
+expected.cost.df.filtered <- expected.cost.df %>%
+  filter(C.estimation == "Assembly")
+
+```
+
+```{r fig.width=10,fig.height=10}
+expected.cost.df.long <- expected.cost.df %>%
+  pivot_longer(-c(GeneID,Length,Sigma.n,C,Result.file.path,Initiation.cost.a1,Elongation.cost.a2,w.0,Target.elongation.rate,RPKM,C.estimation),names_to="Type",values_to="Cost")
+
+
+expected.cost.vs.gene.expr <- expected.cost.df.long %>%
+  filter(Type %in% c("Fixed.cost","Variable.cost","Direct.cost","Indirect.cost")) %>%
+  mutate(Type = fct_relevel(Type,c("Direct.cost","Indirect.cost","Fixed.cost","Variable.cost")))
+
+cost.vs.rpkm <- ggplot(expected.cost.vs.gene.expr,aes(x=RPKM,y=Cost,color=Type)) +
+  geom_point() +
+  stat_cor(aes(x=RPKM,y=Cost),method="spearman",label.sep="\n",show.legend = F,inherit.aes = F) +
+  scale_x_log10() +
+  scale_y_log10() +
+  scale_color_viridis_d() +
+  ggtitle("Fixed vs. Variable costs") +
+  facet_grid(Type~C.estimation,scales="free")
+
+cost.vs.rpkm
+
+```
+
+
+
+
+
+
+```{r fig.width=10,fig.height=10}
+expected.cost.df.prop <- expected.cost.df %>%
+  mutate(Total = Total.cost) %>%
+  left_join(roc.phi,by="GeneID") %>%
+  mutate(Flux = Total * Mean) %>%
+  mutate(across(contains("cost") & where(is.numeric),~./Total)) 
+  
+
+expected.cost.df.prop.long <- expected.cost.df.prop %>%
+  pivot_longer(-c(GeneID,
+                  Length,
+                  Sigma.n,
+                  C,
+                  Result.file.path,
+                  Initiation.cost.a1,
+                  Elongation.cost.a2,
+                  w.0,
+                  Target.elongation.rate,
+                  RPKM,
+                  Total,
+                  Flux,
+                  C.estimation),names_to="Type",values_to="Cost")
+
+```
+
+
+
+
+```{r fig.height=6,fig.width=10}
+
+expected.cost.granular.prop <- expected.cost.df.prop.long  %>%
+  filter(Type %in% c("Fixed.direct.cost","Fixed.indirect.cost","Variable.direct.cost","Variable.indirect.cost")) %>%
+  mutate(Type = str_replace_all(Type,"\\."," "))
+
+prop.cost.vs.total <- ggplot(expected.cost.granular.prop,aes(x=Flux,y=Cost,color=Type)) +
+  geom_point() +
+  scale_x_log10() +
+  xlab("Energetic Flux") +
+  ylab("Proportion of cost") +
+  labs(color = "Type of cost") +
+  scale_color_viridis_d() +
+  facet_wrap(~C.estimation)
+prop.cost.vs.total
+
+ggsave2(file.path(fig.dir,"flux_vs_proportion_cost_flux.pdf"),prop.cost.vs.total)
+
+```
+
+
+```{r fig.height=6,fig.width=10}
+
+expected.cost.fixed.vs.var.prop <- expected.cost.df.prop.long  %>%
+  filter(Type %in% c("Fixed.direct.cost","Fixed.indirect.cost","Variable.cost")) %>%
+  mutate(Type = str_replace_all(Type,"\\."," "))
+
+prop.cost.vs.total.all.var <- ggplot(expected.cost.fixed.vs.var.prop,aes(x=Flux,y=Cost,color=Type)) +
+  geom_point() +
+  scale_x_log10() +
+  xlab("Energetic Flux") +
+  ylab("Proportion of cost") +
+  labs(color = "Type of cost") +
+  scale_color_viridis_d() +
+  facet_wrap(~C.estimation)
+prop.cost.vs.total.all.var
+
+
+expected.cost.fixed.vs.var.prop.c.assembly <- expected.cost.fixed.vs.var.prop %>%
+  filter(C.estimation == "Assembly")
+prop.cost.vs.total.assembly <- ggplot(expected.cost.fixed.vs.var.prop.c.assembly,aes(x=Flux,y=Cost,color=Type)) +
+  geom_point(alpha=0.1) +
+  scale_x_log10() +
+  guides(colour = guide_legend(override.aes = list(alpha = 1))) +
+  xlab("Energetic flux") +
+  ylab("Proportion of cost") +
+  labs(color = "Type of cost") +
+  scale_color_viridis_d()
+prop.cost.vs.total.assembly
+
+
+```
+
+
+
+
+```{r fig.height = 5}
+expected.cost.df.prop <- expected.cost.df %>%
+  mutate(Total.fix = Fixed.cost,
+         Total.var = Variable.cost,
+         Total = Total.cost) %>%
+  left_join(roc.phi,by="GeneID") %>%
+  mutate(Flux = Total * Mean) %>%
+  mutate(across(contains("Fixed.") & where(is.numeric),~./Total.fix),
+         across(contains("Variable.") & where(is.numeric),~./Total.var)) 
+  
+
+expected.cost.df.prop.long <- expected.cost.df.prop %>%
+  pivot_longer(-c(GeneID,Length,Sigma.n,C,Result.file.path,Initiation.cost.a1,Elongation.cost.a2,w.0,Target.elongation.rate,RPKM,Flux,C.estimation),names_to="Type",values_to="Cost")
+
+
+expected.cost.fix.vs.var.prop <- expected.cost.df.prop.long  %>%
+  filter(Type %in% c("Fixed.direct.cost","Fixed.indirect.cost","Variable.direct.cost","Variable.indirect.cost")) %>%
+  mutate(Type = str_replace_all(Type,"\\."," ")) %>%
+  separate(Type,sep = " ",into=c("Fix.vs.Var","Direct.vs.indirect","X"),remove=F)
+
+prop.fix.vs.var.cost.vs.total <- ggplot(expected.cost.fix.vs.var.prop,aes(x=Flux,y=Cost,color=Type)) +
+  geom_point() +
+  scale_x_log10() +
+  xlab("Energetic Cost") +
+  ylab("Proportion of Fixed or Variable Cost") +
+  labs(color = "Type of cost") +
+  scale_color_viridis_d() +
+  facet_wrap(~C.estimation + Fix.vs.Var)
+prop.fix.vs.var.cost.vs.total 
+
+ggsave2(file.path(fig.dir,"prop_fixed_vs_variable_cost.pdf"),prop.fix.vs.var.cost.vs.total)
+
+```
+
+## Linear models comparing how sub costs change as a function of gene expression and length
+
+Below, we see that the cost of NSEs and the indirect elongation costs decrease, on average, as gene expression increases and increases as length increases.
+Both are expected results.
+Direct elongation costs also increases as a function of length, as expected, but also has a very low ($\beta = 0.000103) but statistically significant coefficient for gene expression.
+Direct costs should just be related to length (we don't consider the cost of the amino acid used), so finding a significant correlation suggests we may want to check for artifacts.
+
+```{r}
+expected.cost.df.expr.remove.missing <- expected.cost.df.filtered %>%
+  filter(!is.na(RPKM) & RPKM > 0)
+
+regressAgainstRPKMandLength <- function(dependent.var,df)
+{
+  df <- as.data.frame(df)
+  lm.model <- broom::tidy(lm(log10(df[,dependent.var])~ log10(df[,"RPKM"]) + log10(df[,"Length"]))) %>%
+              mutate(Model = dependent.var,
+                    Model = str_replace_all(Model,"\\."," ")
+                    )%>%
+              relocate(Model)
+  return(lm.model)
+}
+
+costs <- c("Fixed.direct.cost",
+           "Fixed.indirect.cost",
+           "Variable.direct.cost",
+           "Variable.indirect.cost",
+           "Direct.cost",
+           "Indirect.cost",
+           "Fixed.cost",
+           "Variable.cost")
+
+
+reg.df <- purrr::map(costs,regressAgainstRPKMandLength,df = expected.cost.df.expr.remove.missing) %>%
+  bind_rows()
+
+
+
+reg.df %>% filter(p.value > 0.05)
+
+reg.df %>%
+  dplyr::select(-statistic) %>%
+  pivot_wider(id_cols = Model,names_from = "term",values_from="estimate")
+
+
+```
+
+
+### Comparing to null
+
+Below, we compare our overall costs to the expected null generated from 1000 permuted sequences (keeping amino acid sequence fixed).
+
+```{r}
+
+## Getting mean and updating file path because nulls generated on Hipparchia.
+rfp.perm.mean <- nulls.overall %>%
+    filter(C == as.character(C.assembly)) %>%
+    mutate(Permutation.Mean = rowMeans(across(contains("Expected.cost.overall")))) %>%
+    mutate(Result.file.path = main.yeast.result.path)
+  
+```
+
+
+
+
+
+```{r}
+rfp.results <- expected.cost.df.filtered %>% 
+  dplyr::rename(Real.Cost = Total.cost) %>%
+  left_join(rfp.perm.mean,c("GeneID","Result.file.path","Initiation.cost.a1","Elongation.cost.a2","C","w.0","Target.elongation.rate"))
+  ## ~60% of genes have an overall cost less than expected based on randomized sequences 
+
+
+frac <- rfp.results %>% 
+  rowwise() %>% 
+  mutate(Frac = length(which(Real.Cost < across(contains("Expected"))))/1000) %>%
+  dplyr::select(GeneID,Frac)
+  
+```
+
+
+```{r}
+
+rfp.results <- rfp.results %>% 
+  mutate(Cost.Difference = Real.Cost - Permutation.Mean) %>%
+  filter(Result.file.path == main.yeast.result.path)
+
+gene <- "YIL143C"
+
+example.real.cost <- rfp.results %>%
+  filter(GeneID == gene) %>%
+  dplyr::select(Real.Cost) %>%
+  deframe()
+
+example.cost.perm <- rfp.results %>%
+  filter(GeneID == gene) %>%
+  dplyr::select(GeneID,contains("Expected.cost.overall.")) %>%
+  pivot_longer(-GeneID,names_to="Permutation",values_to="Cost")
+  
+example.cost.perm.p <- ggplot(example.cost.perm,aes(x=Cost)) +
+  geom_histogram(color="black",fill="white") +
+  theme_cowplot() +
+  geom_vline(xintercept = example.real.cost,linetype="dashed") +
+  ylab("Count") +
+  ggtitle(gene) +
+  labs(linetype="Cost (Observed Sequence)") +
+  geom_text(x=4125,y=125,label="Observed Cost") +
+  xlim(c(3900,NA))
+example.cost.perm.p
+
+binom.test(x=length(which(rfp.results$Real.Cost < rfp.results$Permutation.Mean)),n=nrow(rfp.results),p=0.5)
+
+
+
+```
+
+
+We observe that ~59% (Binomial test, $p_0 = 0.5$, $p < 2.2e-16$) of protein-coding sequences exhibit a lower cost of a nonsense error compared to permuted sequences, consistent with adaptation to nonsense errors via codon ordering.
+
+```{r}
+
+rfp.results <- rfp.results %>%
+  left_join(frac,by="GeneID") %>%
+  left_join(roc.phi,by="GeneID") %>% 
+  mutate(Odds.Ratio = case_when(
+   Frac != 1 ~ Frac/(1-Frac),
+   Frac == 1 ~ 1/(1-1002)
+  ),
+  Binary = ifelse(Real.Cost < Permutation.Mean, 1, 0))
+
+
+
+```
+
+Below, we see how the overall cost of a gene scales with gene expression (mRNA abundances RPKM), as well as how it changes per codon (so controlling for length of the gene).
+In both cases, we see negative correlations, indicating that highly expressed genes tend to be lower cost. 
+
+
+```{r}
+mrna.vs.cost.p <- ggplot(rfp.results,aes(x=RPKM,y=Real.Cost/Length)) +
+  geom_point(aes(color=log10(Length))) +
+  scale_x_log10() +
+  scale_y_log10() +
+  stat_cor(method="spearman",label.sep="\n") +
+  xlab("mRNA Abundance (RPKM)") +
+  #ylab(expression(atop("Expected Cost of mRNA Translation per codon",zeta*"(c)/N (ATP/Codon)")))+
+  ylab("Expected cost of mRNA translation\nper codon")+
+  theme_cowplot() +
+  labs(color=expression("Log"["10"]*"(Length)"))
+mrna.vs.cost.p
+```
+
+We can perform a logistic regression on whether or not the real expected cost of a nonsense error is lower than the average of the permuted sequences against gene expression.
+A positive slope would indicate that highly-expressed genes are, on average, more adapted to selection against nonsense errors.
+This is what we observe.
+
+```{r}
+rfp.results.remove.missing <- rfp.results %>%
+  filter(!is.na(RPKM) & RPKM > 0) %>%
+  mutate(Binary.Yes = ifelse(Binary == 1,"Yes","No")) %>%
+  mutate(RPKM.Yes = ifelse(Binary == 1, RPKM, NA),
+         RPKM.No = ifelse(Binary == 0, RPKM, NA),
+         Length.Yes = ifelse(Binary == 1, Length, NA),
+         Length.No = ifelse(Binary == 0, Length, NA))
+
+log.reg <- glm(Binary ~ log10(RPKM),
+               data=rfp.results.remove.missing,
+               family = "binomial")
+summary(log.reg)
+
+coefficients <- unname(round(coef(log.reg),3))
+
+binary.p.ge <- ggplot(rfp.results.remove.missing) + 
+  geom_histogram(aes(x = RPKM.No, y = stat(count)/1000), fill="white",color="black",bins = 30, na.rm = TRUE) +
+  geom_histogram(aes(x = RPKM.Yes, y = -1*stat(count/1000)), fill="white",color="black",bins = 30, na.rm = TRUE, position = position_nudge(y = 1)) +
+  stat_smooth(aes(x=RPKM,y=Binary),method="glm",family="binomial") +
+  xlab("mRNA abundance (RPKM)") +
+  ylab(expression(atop("Is Real Sequence Less Costly Than Expected?",zeta*"(c) < "*bar(zeta*"(c"[p]*")"))))+
+  theme_cowplot() +
+  scale_y_continuous(breaks=c(0,1),labels = c("No","Yes"),limits=c(0,1.1)) +
+  scale_x_log10() +
+  #ggtitle("Impact of Gene Expression on\nAdaptation Against Nonsense Errors") +
+  annotate("text", 
+           x = 10, 
+           y = 1.05,
+           label = deparse(bquote("logit["*pi*"("*italic(x)*")]"==.(coefficients[1]) + .(coefficients[2])~italic(x))),
+           hjust = 0.25, 
+           vjust = 0, 
+           color = "black", 
+           size=5,
+           parse = TRUE)
+binary.p.ge
+
+```
+
+
+```{r}
+
+log.reg <- glm(Binary ~ log10(Length),
+               data=rfp.results.remove.missing,
+               family = "binomial")
+summary(log.reg)
+
+coefficients <- unname(round(coef(log.reg),3))
+
+
+binary.p.le <- ggplot(rfp.results.remove.missing) +
+  geom_histogram(aes(x = Length.No, y = stat(count)/1000), fill="white",color="black",bins = 30, na.rm = TRUE) +
+  geom_histogram(aes(x = Length.Yes, y = -1*stat(count/1000)), fill="white",color="black",bins = 30, na.rm = TRUE, position = position_nudge(y = 1)) +
+  stat_smooth(aes(x=Length,y=Binary),method="glm",family="binomial") +
+  xlab("Length") +
+  theme_cowplot() +
+  scale_y_continuous(breaks=c(0,1),labels = c("No","Yes"),limits=c(0,1.1)) +
+  scale_x_log10() +
+  theme(axis.title.y = element_blank()) +
+  annotate("text",
+           x = 200, 
+           y = 1.05,
+           label = deparse(bquote("logit["*pi*"("*italic(x)*")]"==.(coefficients[1]) + .(coefficients[2])~italic(x))),
+           hjust = 0.25, 
+           vjust = 0, 
+           color = "black", 
+           size=5,
+           parse = TRUE)
+binary.p.le
+
+
+```
+
+```{r fig.width=10,fig.height=5}
+
+log.reg.plots <- binary.p.ge | binary.p.le
+
+```
+
+
+
+### Difference in real vs expected cost as a function of gene expression and gene length
+
+
+```{r fig.width=10}
+ge.length.vs.cost.add <- lm(Cost.Difference/Permutation.Mean ~ log10(RPKM) + log10(Length),data=rfp.results.remove.missing)
+ge.length.vs.cost.int <- lm(Cost.Difference/Permutation.Mean ~ log10(RPKM) * log10(Length),data=rfp.results.remove.missing)
+
+anova(ge.length.vs.cost.add,ge.length.vs.cost.int)
+
+summary(ge.length.vs.cost.add)
+
+ge.vs.cost.diff <- ggplot(rfp.results.remove.missing,aes(x=log10(RPKM),y=Cost.Difference/Permutation.Mean,color=log10(Length))) +
+  geom_point() +
+  geom_density_2d(color="yellow") +
+  geom_hline(yintercept = 0) +
+  xlab(expression("Log"[10]*"RPKM")) +
+  stat_cor(method = "spearman",label.sep="\n") +
+  theme_cowplot()
+
+ge.vs.cost.diff
+
+length.vs.cost.diff <- ggplot(rfp.results.remove.missing,aes(x=log10(Length),y=Cost.Difference/Permutation.Mean,color=log10(RPKM))) +
+  geom_point() +
+  geom_density_2d(color="yellow") +
+  geom_hline(yintercept = 0) +
+  stat_cor(method = "spearman",label.sep="\n") +
+  theme_cowplot()
+
+length.vs.cost.diff
+
+ge.vs.cost.diff | length.vs.cost.diff
+
+```
+
+```{r}
+
+
+log.reg.ge <- glm(Binary ~ log10(RPKM),
+               data=rfp.results.remove.missing,
+               family = "binomial")
+summary(log.reg.ge)
+
+log.reg.length <- glm(Binary ~ log10(Length),
+               data=rfp.results.remove.missing,
+               family = "binomial")
+summary(log.reg.length)
+
+log.reg.add <- glm(Binary ~ log10(RPKM) + log10(Length),
+               data=rfp.results.remove.missing,
+               family = "binomial")
+
+log.reg.interact <- glm(Binary ~ log10(RPKM)*log10(Length),
+               data=rfp.results.remove.missing,
+               family = "binomial")
+summary(log.reg.interact)
+
+anova(log.reg.add,log.reg.interact)
+
+```
+
+
+
+## Comparing direct cost of elongation, indirect cost of elongation (i.e., pausing time), and cost of nonsense errors 
+
+```{r}
+expected.cost.df.expr <- expected.cost.df %>%
+  left_join(roc.phi %>% dplyr::select(GeneID,Mean),by="GeneID") %>%
+  dplyr::rename(ROC.Phi=Mean)
+
+expected.cost.long <- expected.cost.df.expr %>%
+  pivot_longer(c(Fixed.direct.cost,Fixed.indirect.cost,Variable.cost),names_to = "Type",values_to = "Cost") %>%
+  mutate(Type=case_when(
+    Type == "Fixed.indirect.cost" ~ "Indirect cost of elongation",
+    Type == "Variable.cost" ~ "Direct and indirect cost of NSE",
+    Type == "Fixed.direct.cost" ~ "Direct cost of elongation"
+  ))
+
+
+```
+
+
+
+
+
+
+
+```{r}
+
+expected.cost.df.expr.c.assembly <- expected.cost.df.expr %>%
+  filter(C.estimation == "Assembly")
+
+
+exp.nse.vs.pausing.fold.change <- ggplot(expected.cost.df.expr,aes(x=log10(Variable.cost) - log10(Fixed.indirect.cost))) +
+  geom_histogram(color="black",fill="white") +
+  geom_vline(xintercept = 0) +
+  xlab(expression("Log"["10"]*"(Variable Cost) - Log"["10"]*"(Fixed Indirect Cost)"))+
+  ylab("Count") +
+  #ggtitle("Distribution of Cost of NSE vs. Indirect Cost of Elongation") +
+  theme_cowplot() +
+  theme(aspect.ratio = 1,
+        title = element_text(size=10)) +
+  facet_wrap(~C.estimation)
+exp.nse.vs.pausing.fold.change
+
+
+
+exp.nse.vs.pausing.fold.change.c.assembly <- ggplot(expected.cost.df.expr.c.assembly,aes(x=log10(Variable.cost) - log10(Fixed.indirect.cost))) +
+  geom_histogram(color="black",fill="white") +
+  geom_vline(xintercept = 0) +
+  xlab(expression("Log"["10"]*"(Variable Cost) - Log"["10"]*"(Fixed Indirect Cost)"))+
+  ylab("Count") +
+  #ggtitle("Distribution of Cost of NSE vs.\nFixed Indirect Cost of Elongation") +
+  theme_cowplot() 
+exp.nse.vs.pausing.fold.change.c.assembly
+
+```
+
+
+
+
+
+
+
+
+
+
+```{r fig.width=18,fig.height=12}
+
+layout <- "
+   AABBCC
+   #DDDD#
+"
+total <- mrna.vs.cost.p  + prop.cost.vs.total.assembly  + exp.nse.vs.pausing.fold.change.c.assembly + log.reg.plots + plot_annotation(tag_levels = "A") + plot_layout(design = layout)
+total
+
+
+ggsave2(file.path(fig.dir, "Figure_7.pdf"),plot = total,width=18,height = 12)
+
+
+```
+
+
+
+
+

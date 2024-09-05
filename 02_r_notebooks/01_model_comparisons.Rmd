@@ -1,0 +1,298 @@
+---
+title: "Model Comparisons"
+author: "Alexander Cope"
+date: "2024-05-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.show="hold", out.width="50%", warning = FALSE)
+library(tidyverse)
+library(AnaCoDa)
+
+# Set up how you want to render plots
+plotting.target <- switch(1,
+                          "paper",
+                          "talk")
+source("ggplot2.settings.R") # includes loading of ggplot and assoc libraries
+suppressMessages(source("helperFunctions.R"))
+
+
+
+```
+
+# Impact of filtering bad genes on parameter estimation
+
+We performed extensive filtering of genes included in our final analysis baed on criteria described in `00_data_quality_and_filtering.Rmd`.
+The full dataset here includes all genes with the exception of mitochondrial genes and potential paralogs.
+Excluding potentially bad genes had relatively little impact on parameter estimation.
+Even so, we will continue working with the filtered dataset, which is generally more inline with the assumptions of PANSE. 
+
+
+```{r}
+
+full <- getParameterDataFrames("../01_results/00_panse_fits/2023-04-21_Weinberg_etal_all_genes_no_filtering/final_restart/")
+
+filt <- getParameterDataFrames("../01_results/00_panse_fits/2023-05-08_Weinberg_etal_filter_pause_sites_extreme_correlations_possible_misannotated_start_sites/final_restart/")
+
+compareEstimates(full,filt,variable="Log.NSERate",xlab="Log10(NSE Rate)\nNo filter",ylab="Log10(NSE Rate)\nBad Genes Excluded",title="Impact of Filtering Bad Genes\non Parameters: NSE Rates",color = "Stop.Neighbor")
+
+compareEstimates(full,filt,variable="Alpha",xlab="Alpha\nRamp Included",ylab="Alpha\nBad Genes Excluded",title="Impact of Filtering Bad Genes\non Parameters: Alpha")
+
+compareEstimates(full,filt,variable="Lambda",xlab="Lambda\nRamp Included",ylab="Lambda\nBad Genes Excluded",title="Impact of Filtering Bad Genes\non Parameters: Lambda")
+
+compareEstimates(full,filt,variable="Wait.Time",xlab="Wait Times\nRamp Included",ylab="Wait Times\nBad Genes Excluded",title="Impact of Filtering Bad Genes\non Parameters: Wait Times")
+
+compareEstimates(full,filt,variable="Log.NSEProb",xlab="Log10(NSE Prob)\nRamp Included",ylab="Log10(NSE Prob)\nBad Genes Excluded",title="Impact of Filtering Bad Genes\non Parameters: Log10(NSE Prob)")
+
+compareEstimates(full,filt,variable="Phi",xlab="Phi\nRamp Included",ylab="Phi\nBad Genes Excluded",title="Impact of Filtering Bad Genes\non Parameters: Phi")
+
+```
+
+
+
+
+# Impact of the 5'-region on parameter estimation
+
+The significant drop in ribosome density that is observed in the ribosome profiling data set may inflate our estimates of nonsense error rates.
+I modified AnaCoDa to allow users to specify if a position should be included in the likelihood calculation.
+Excluded positions can still be used in the calculation of $\sigma$.
+A somewhat subjective question is how to define the end of the ramp. 
+Weinberg et al. 2016 considered the first 200 codons (dashed line) to constitute the ramp region, which seems logical based on the below plot.
+As a starting point, I went with a 200 codon ramp (solid line). 
+To do so, I filtered out all genes with < 225 codons (not including the start codon).
+
+
+```{r}
+rfp <- read_csv("../00_data/00_panse_input/weinberg_etal_2016_all_frames.csv")
+if ("gene" %in% colnames(rfp))
+{
+  rfp <- rfp %>%
+    rename(GeneID = gene)
+}
+
+rfp <- rfp %>%
+  group_by(GeneID) %>%
+  mutate(RFPDensity = RFPCount/mean(RFPCount))
+
+
+
+rfp.by.pos <- rfp %>%
+  ungroup() %>%
+  group_by(Position) %>%
+  dplyr::summarize(Density= mean(RFPDensity))
+
+
+ramp.plot <- ggplot(rfp.by.pos,aes(x=Position,y=Density)) +
+  xlim(0, 1000) +
+  ylim(0, 1.75) +
+  geom_line() +
+  ylab("Ribosome Density") +
+  xlab("Position") +
+  #ggtitle("The \"5\'-ramp\" in Weinberg et al. data") +
+  theme_cowplot()
+
+ramp.plot.cutoff <- ramp.plot +
+  geom_vline(xintercept = 200,linetype="dashed")
+ramp.plot.cutoff
+
+
+rfp.by.pos_post.ramp <- rfp %>%
+  group_by(GeneID) %>%
+  mutate(width = max(Position)) %>%
+  filter(width > 225) %>%
+  filter(Position >=200) %>%
+  mutate(RFPTotal = sum(RFPCount)) %>%
+  filter(RFPTotal > 0) %>% 
+  mutate(RFPDensity = RFPCount/mean(RFPCount)) %>%
+  mutate(RFP_Pr = RFPCount/RFPTotal) %>%
+  ungroup()
+
+## look at top of data
+rfp.by.pos_post.ramp %>% group_by(GeneID) %>% summarize(first(RFPTotal))
+
+
+rfp.density <- rfp.by.pos_post.ramp %>%
+  group_by(Position) %>%
+  dplyr::summarize(Density= mean(RFPDensity)) %>%
+  ungroup()
+
+density.vs.all.pos.plot <- ggplot(rfp.density,
+                         aes(x=Position,y=Density)) +
+  geom_line() +
+  geom_smooth(colour="darkgoldenrod1",
+              size=1.5, method="loess",
+              span=1, se=FALSE) +
+  theme_cowplot() +
+  geom_hline(yintercept = 1,linetype="dashed") + 
+  ylab("Relative Ribosome Density") +
+  xlab("Position") +
+  ggtitle("Post \"5\'-ramp\" in Weinberg et al. data")
+
+density.vs.all.pos.plot
+
+density.vs.pos.plot <- density.vs.all.pos.plot + xlim(0, 2000) + ylim(0,2)
+last_plot()
+
+
+rfp.total <- rfp.by.pos_post.ramp %>%
+  group_by(Position) %>%
+  dplyr::summarize(Total= sum(RFPCount)) %>%
+  ungroup()
+
+total.vs.pos.plot <- ggplot(rfp.total,
+                         aes(x=Position,y=Total)) +
+  geom_line() +
+  ylab("Total Ribosome Count") +
+  xlab("Position") +
+  #ggtitle("Post \"5\'-ramp\" in Weinberg et al. data") +
+  theme_cowplot()
+total.vs.pos.plot
+
+
+
+```
+
+Here, we assess the impact of excluding the first 200 codons in our likelihood calculations. Again, we strict this analysis to genes with a minimum 225 codons (not including the start codon).
+
+```{r}
+filt <- getParameterDataFrames("../01_results/00_panse_fits/2023-05-08_Weinberg_etal_filter_pause_sites_extreme_correlations_possible_misannotated_start_sites/final_restart/")
+
+filt.ramp <- getParameterDataFrames("../01_results/00_panse_fits/2023-06-12_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_200_ramp/final_restart/")
+
+compareEstimates(filt,filt.ramp,variable="Log.NSERate",xlab="Log10(NSE Rate)\nRamp Included",ylab="Log10(NSE Rate)\nRamp Excluded",title="Impact of Excluding Ramp\non Parameters: NSE Rates",color = "Stop.Neighbor")
+
+compareEstimates(filt,filt.ramp,variable="Alpha",xlab="Alpha\nRamp Included",ylab="Alpha\nRamp Excluded",title="Impact of Excluding Ramp\non Parameters: Alpha")
+
+compareEstimates(filt,filt.ramp,variable="Lambda",xlab="Lambda\nRamp Included",ylab="Lambda\nRamp Excluded",title="Impact of Excluding Ramp\non Parameters: Lambda")
+
+compareEstimates(filt,filt.ramp,variable="Wait.Time",xlab="Wait Times\nRamp Included",ylab="Wait Times\nRamp Excluded",title="Impact of Excluding Ramp\non Parameters: Wait Times")
+
+compareEstimates(filt,filt.ramp,variable="Log.NSEProb",xlab="Log10(NSE Prob)\nRamp Included",ylab="Log10(NSE Prob)\nRamp Excluded",title="Impact of Excluding Ramp\non Parameters: Log10(NSE Prob)")
+
+compareEstimates(filt,filt.ramp,variable="Phi",xlab="Phi\nRamp Included",ylab="Phi\nRamp Excluded",title="Impact of Excluding Ramp\non Parameters: Phi")
+
+```
+
+
+
+The parameter estimates are very similar, with the exception of the NSE rates and $\phi$ (which are highly correlated, but different values).
+The above is not a true apples to apples comparison, as the set of genes is different. 
+If we do the same analysis with the restricted set of genes with a minimum length of 225 codons (such that each gene has at least 25 codons for parameter estimation), we see the parameter estimates for $\phi$ are much more similar.
+
+
+```{r}
+filt.w.ramp <- getParameterDataFrames("../01_results/00_panse_fits/2023-06-12_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_0_ramp/final_restart/")
+
+filt.wo.ramp <- getParameterDataFrames("../01_results/00_panse_fits/2023-06-12_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_200_ramp/final_restart/")
+
+compareEstimates(filt.w.ramp,filt.wo.ramp,variable="Log.NSERate",xlab="Log10(NSE Rate)\nRamp Included",ylab="Log10(NSE Rate)\nRamp Excluded",title="Impact of Excluding Ramp\non Parameters: NSE Rates",color = "Stop.Neighbor")
+
+compareEstimates(filt.w.ramp,filt.wo.ramp,variable="Alpha",xlab="Alpha\nRamp Included",ylab="Alpha\nRamp Excluded",title="Impact of Excluding Ramp\non Parameters: Alpha")
+
+compareEstimates(filt.w.ramp,filt.wo.ramp,variable="Lambda",xlab="Lambda\nRamp Included",ylab="Lambda\nRamp Excluded",title="Impact of Excluding Ramp\non Parameters: Lambda")
+
+compareEstimates(filt.w.ramp,filt.wo.ramp,variable="Wait.Time",xlab="Wait Times\nRamp Included",ylab="Wait Times\nRamp Excluded",title="Impact of Excluding Ramp\non Parameters: Wait Times")
+
+compareEstimates(filt.w.ramp,filt.wo.ramp,variable="Log.NSEProb",xlab="Log10(NSE Prob)\nRamp Included",ylab="Log10(NSE Prob)\nRamp Excluded",title="Impact of Excluding Ramp\non Parameters: Log10(NSE Prob)")
+
+compareEstimates(filt.w.ramp,filt.wo.ramp,variable="Phi",xlab="Phi\nRamp Included",ylab="Phi\nRamp Excluded",title="Impact of Excluding Ramp\non Parameters: Phi")
+
+
+```
+
+
+
+
+
+# Comparing two MCMC runs
+
+To make sure the MCMC converges to the same parameter estimates, we did two fits to the same data starting from different points in parameter space. We see the posterior means in good agreement between the two independent model fits.
+
+```{r}
+run.1 <- getParameterDataFrames("../01_results/00_panse_fits/2023-06-12_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_200_ramp/final_restart/")
+
+run.2 <- getParameterDataFrames("../01_results/00_panse_fits/2023-07-20_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_200_ramp_run_2/final_restart/")
+
+compareEstimates(run.1,run.2,variable="Log.NSERate",xlab="Log10(NSE Rate)\nFirst 200 Codons",ylab="Log10(NSE Rate)\nPost-200 codons",title="NSE Rate estimates in ramp region\nvs. remainder of gene",color = "Stop.Neighbor")
+
+compareEstimates(run.1,run.2,variable="Wait.Time",xlab="Wait Times\nFirst 200 Codons",ylab="Wait Times\nPost-200 codons",title="Wait time estimates in ramp region\nvs. remainder of gene",color = "Stop.Neighbor") + scale_x_log10() + scale_y_log10()
+
+compareEstimates(run.1,run.2,variable="Phi",xlab="Log10(Phi)\nFirst 200 Codons",ylab="Log10(Phi)\nPost-200 codons",title="Comparison of phi estimates",log.scale.phi = T)
+
+
+```
+
+
+
+# Same vs. Variable NSE Rates
+
+```{r}
+variable <- getParameterDataFrames("../01_results/00_panse_fits/2023-07-20_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_200_ramp_run_2/final_restart/")
+
+same <- getParameterDataFrames("../01_results/00_panse_fits/2023-07-20_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_200_ramp_uniform_nse/final_restart/")
+
+
+var.nse <- variable$Log.NSERate %>%
+  mutate(AA.Codon = paste(AA,Codon,sep=": "))
+
+var.nse <- var.nse %>%
+  rowwise() %>%
+  mutate(Neighbor = as.factor(stopCodonNeighbor(Codon)))
+
+same.nse <- same$Log.NSERate %>%
+  filter(Codon == "GCA") %>%
+  mutate(Codon = "All")
+
+nse.compare <- list(same.nse,var.nse) %>% 
+  bind_rows() %>%
+  mutate(Model = ifelse(Codon == "All","Same","Variable")) %>%
+  rowwise() 
+```
+
+
+```{r fig.width=10, fig.height=4}
+p <- ggplot(var.nse,aes(x=reorder(AA.Codon, Mean),y=Mean,color=Neighbor)) +
+  geom_point() +
+  geom_errorbar(aes(ymin=`2.5%`,ymax=`97.5%`,width=0)) +
+  geom_hline(yintercept = unlist(same.nse$Mean)) +
+  geom_hline(yintercept = unlist(same.nse$`2.5%`),linetype="dashed") +
+  geom_hline(yintercept = unlist(same.nse$`97.5%`),linetype="dashed") +
+  theme_cowplot() +
+  labs(color="# Stop codon\nneighbors") +
+  scale_color_viridis_d() +
+  xlab("Codon") +
+  ylab(expression("Log"[10]*"(NSE Rate)")) +
+  #ggtitle("Model estimates of NSE rates across codons") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+p
+
+ggsave2(file.path(fig.dir, "nserate_var_across_codons.pdf"),plot = p, height=5,width=11)
+
+
+```
+
+
+## Comparing models using DIC
+
+```{r}
+mcmc.unif <- loadMCMCObject("../01_results/00_panse_fits/2023-07-20_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_200_ramp_uniform_nse/final_restart/R_objects/mcmc.Rda")
+mcmc.var <- loadMCMCObject("../01_results/00_panse_fits/2023-07-20_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_200_ramp_run_2/final_restart/R_objects/mcmc.Rda")
+
+llik.var <- mcmc.var$getLogLikelihoodTrace()
+llik.unif <- mcmc.unif$getLogLikelihoodTrace()
+
+dev.var <- -2*llik.var[5000:10000]
+dev.unif <- -2*llik.unif[5000:10000]
+mean.dev.var <- mean(dev.var)
+mean.dev.unif <- mean(dev.unif)
+
+pd.var <- 1/2 * var(dev.var)
+pd.unif <- 1/2 * var(dev.unif)
+
+dic.var <- mean.dev.var + pd.var
+dic.unif <- mean.dev.unif + pd.unif
+
+dic.var - dic.unif
+```
+

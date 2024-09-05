@@ -1,0 +1,136 @@
+---
+title: "Model Adequacy"
+author: "Alexander Cope"
+date: "2024-05-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(AnaCoDa)
+
+plotting.target <- switch(1,
+                          "paper",
+                          "talk")
+source("ggplot2.settings.R")
+suppressMessages(source("helperFunctions.R"))
+
+```
+
+
+# Comparing real ribosome densities to ribosome densities simulated using parameters estimated from the PANSE model
+
+For this analysis, we will base in on the set of filtered genes as outlined in ``00_data_quality_and_filtering.Rmd`. For simulating ribosome counts at each count, we will use the posterior means from the model fit `../01_results/00_panse_fits/2023-07-20_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_200_ramp_run_2`.
+
+```{r}
+
+rfp <- read_csv("../00_data/00_panse_input/2023-06-12_weinberg_etal_2016_all_frames_200_ramp.csv")
+if ("gene" %in% colnames(rfp))
+{
+  rfp <- rfp %>%
+    rename(GeneID = gene)
+}
+
+rfp <- rfp %>%
+  group_by(GeneID) %>%
+  mutate(RFPDensity = RFPCount/mean(RFPCount))
+
+
+
+rfp.by.pos <- rfp %>%
+  ungroup() %>%
+  group_by(Position) %>%
+  dplyr::summarize(Density= mean(RFPDensity))
+sim.rfp <- read_csv("../01_results/01_simulations/simulated_rfp.csv")
+
+sim.rfp <- sim.rfp %>%
+  group_by(GeneID) %>%
+  mutate(RFPDensity = RFPCount/mean(RFPCount))
+
+
+
+sim.rfp.by.pos <- sim.rfp %>%
+  ungroup() %>%
+  group_by(Position) %>%
+  dplyr::summarize(Density= mean(RFPDensity,na.rm=T))
+
+metagene.comp <- rfp.by.pos %>%
+  left_join(sim.rfp.by.pos,by=c("Position"),suffix=c("_Real","_Simulated")) %>%
+  filter(Position <= 1000) %>%
+  pivot_longer(c(Density_Real,Density_Simulated),names_to = "Data",values_to="Density") %>%
+  mutate(Data = ifelse(Data== "Density_Real","Real","Simulated"))
+
+ramp.plot <- ggplot(metagene.comp,aes(x=Position,y=Density,color=Data)) +
+  geom_line() +
+  ylab("Ribosome Density") +
+  scale_color_viridis_d() +
+  xlab("Position") +
+  theme_cowplot() +
+  geom_hline(yintercept = 1,linetype="dashed")
+ramp.plot
+
+
+```
+
+
+```{r}
+rfp.real.vs.sim <- rfp %>%
+  left_join(sim.rfp,by=c("GeneID","Position","Codon"),suffix=c("_Real","_Sim")) %>%
+  mutate(Deviation = log(RFPDensity_Real) - log(RFPDensity_Sim))# %>%
+  #filter(RFPCount_Real !=0 & RFPCount_Sim != 0)
+
+cor.test(rfp.real.vs.sim$RFPCount_Real,rfp.real.vs.sim$RFPCount_Sim,method="spearman")
+
+rfp.real.vs.sim.no.zero <- rfp.real.vs.sim %>% 
+  filter(RFPCount_Real !=0 & RFPCount_Sim != 0)
+
+dev.hist <- ggplot(rfp.real.vs.sim.no.zero,aes(x=Deviation)) +
+  geom_histogram(color="black",fill="white") +
+  theme_cowplot() +
+  xlab("Deviation\nLog(True RFP Count) - Log(Simulated RFP Count)") +
+  ylab("Count")
+  theme(aspect.ratio=1)
+dev.hist
+
+ggsave2(file.path(fig.dir,"deviation_real_vs_simulated.pdf"),dev.hist,height = 5,width=7)
+
+t.test(rfp.real.vs.sim.no.zero$Deviation)
+print(paste("The fold change on the natural scale is:", exp(mean(rfp.real.vs.sim$Deviation))))
+```
+
+## First 200 vs. post-200
+
+This analysis suggests that the first 200 codons appears to have highly-inflated parameter estimates relative to the the remainder of the genes.
+This is consistent with previous results that applied Sin et al.'s approach to the Weinberg data.
+
+```{r}
+ignore.post.200 <- getParameterDataFrames("../01_results/00_panse_fits/2023-07-20_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_ignore_post_200_ramp/final_restart/")
+ignore.first.200 <- getParameterDataFrames("../01_results/00_panse_fits/2023-07-20_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_200_ramp_run_2/final_restart/")
+
+ramp.vs.post.nse <- compareEstimates(ignore.post.200,ignore.first.200,variable="Log.NSERate",xlab="Log10(NSE Rate)\nFirst 200 Codons",ylab="Log10(NSE Rate)\nPost-200 codons",title="",color = NA)
+
+ramp.vs.post.wt <- compareEstimates(ignore.post.200,ignore.first.200,variable="Wait.Time",xlab="Elongation Waiting Times\nFirst 200 Codons",ylab="Elongation Waiting Times\nPost-200 codons",title="",color =  NA)
+
+ramp.vs.post.phi <- compareEstimates(ignore.post.200,ignore.first.200,variable="Phi",xlab="Total Initiation Rate\nFirst 200 Codons",ylab="Total Initiation Rate\nPost-200 codons",title="",log.scale.phi = T)
+
+ramp.vs.post.nse
+ramp.vs.post.wt
+ramp.vs.post.phi
+
+
+```
+
+
+
+```{r fig.width=10}
+ramp.nse.effect <- (ramp.plot | ramp.vs.post.nse) + plot_annotation(tag_levels = "A") + plot_layout(widths = c(1.5,1))
+ramp.nse.effect
+ggsave2(file.path(fig.dir, "Figure_3.pdf"),ramp.nse.effect,width=9,height=4)
+
+ramp.other.effect <- ramp.vs.post.wt | ramp.vs.post.phi + plot_annotation(tag_levels = "A")
+
+ggsave2(file.path(fig.dir,"ramp_effect_waiting_time_and_phi.pdf"),ramp.other.effect,width=9,height=5)
+
+
+```
