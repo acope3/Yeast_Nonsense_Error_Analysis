@@ -1,0 +1,1405 @@
+---
+title: "Create Datasets for Analysis"
+author: "Alex Cope"
+date: '2022-11-16'
+output: html_document
+---
+
+For the relevant PANSE input file, look at the date and search for the section based on the header. File paths may need to be altered. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+
+filterDataset <- function(input,
+                          output_dir,
+                          output_rfp,
+                          phi,
+                          output_phi,
+                          min_length_gene = NULL,
+                          trim_5 = NULL,
+                          trim_3 = NULL,
+                          final_position = NULL,
+                          min_read_counts = NULL,
+                          min_read_counts_per_pos = NULL,
+                          apply_filter_to_front_back = F,
+                          remove_pause_sites = NULL,
+                          exclude_these_genes = NULL,
+                          num_genes = NULL)
+{
+  if (!is.null(min_read_counts) && !is.null(min_read_counts_per_pos)){
+    stop("only one of min_read_counts and min_read_counts_per_pos should be specified")
+  }
+  
+  if (!is.null(trim_5) && !is.null(final_position))
+  {
+    print("WARNING: both final_position and trim_5 specified. final_position cutoff will be applied first, followed by additional trimming from the 5'-end.")
+  }
+  
+  dir.create(output_dir)
+  rfp <- read_csv(input)
+  phi <- read_csv(phi)
+  
+  if (!"GeneID" %in% colnames(rfp))
+  {
+    rfp <- rfp %>% dplyr::rename(GeneID=gene) # some files use gene instead of GeneID
+  }
+  
+  if (is.character(exclude_these_genes))
+  {
+    exclude_these_genes <- readLines(exclude_these_genes)
+    rfp <- rfp %>% filter(!GeneID %in% exclude_these_genes)
+  }
+  
+  if (!is.null(min_length_gene))
+  {
+    short <- rfp %>% 
+      group_by(GeneID) %>% 
+      dplyr::count() %>% 
+      filter(n < min_length_gene)
+    
+    rfp <- rfp %>% filter(!GeneID %in% short$GeneID)
+  }
+  
+  if (!is.null(min_read_counts))
+  {
+    if (!apply_filter_to_front_back)
+    {
+      total.counts <- rfp %>% 
+        group_by(GeneID) %>% 
+        summarize(Total=sum(RFPCount)) %>% 
+        filter(Total >= min_read_counts) %>% 
+        dplyr::select(GeneID) %>% 
+        deframe()
+      rfp <- rfp %>% filter(GeneID %in% total.counts)
+    } else {
+      total.counts <- rfp %>% 
+        group_by(GeneID) %>%
+        mutate(Loc = ifelse(Position/n() <= 0.5,"Front","Back")) %>%
+        group_by(GeneID,Loc) %>%
+        summarize(Length = n(),
+                  Total.RFP = sum(RFPCount),
+                  RFPCount.Per.Pos = Total.RFP/Length,
+        ) %>%
+        pivot_wider(id_cols=c(GeneID),names_from = Loc,values_from=c(Total.RFP,Density)) %>%
+        filter(Total.RFP_Front >= min_read_counts & Total.RFP_Back >= min_read_counts) %>%
+        dplyr::select(GeneID) %>%
+        deframe()
+      rfp <- rfp %>% filter(GeneID %in% total.counts)
+    }
+  }
+  
+  if (!is.null(min_read_counts_per_pos))
+  {
+    if (!apply_filter_to_front_back)
+    {
+    total.counts <- rfp %>% 
+        group_by(GeneID) %>% 
+        summarize(Total=sum(RFPCount),Length=n(),Average=Total/Length) %>% 
+        filter(Average >= min_read_counts_per_pos) %>% 
+        dplyr::select(GeneID) %>% 
+        deframe()
+      rfp <- rfp %>% filter(GeneID %in% total.counts)
+    } else {
+      total.counts <- rfp %>% 
+        group_by(GeneID) %>%
+        mutate(Loc = ifelse(Position/n() <= 0.5,"Front","Back")) %>%
+        group_by(GeneID,Loc) %>%
+        summarize(Length = n(),
+                  Total.RFP = sum(RFPCount),
+                  RFPCount.Per.Pos = Total.RFP/Length,
+        ) %>%
+        pivot_wider(id_cols=c(GeneID),names_from = Loc,values_from=c(Total.RFP,Density)) %>%
+        filter(RFPCount.Per.Pos_Front >= min_read_counts_per_pos & RFPCount.Per.Pos_Back >= min_read_counts_per_pos) %>%
+        dplyr::select(GeneID) %>%
+        deframe()
+      rfp <- rfp %>% filter(GeneID %in% total.counts)
+    }
+    
+  }
+  
+  if (is.double(remove_pause_sites) && remove_pause_sites > 0)
+  {
+    extreme.stalls <- rfp %>%
+      group_by(GeneID) %>% 
+      mutate(Z.score = (RFPCount - mean(RFPCount))/sd(RFPCount)) %>%
+      filter(Z.score > remove_pause_sites) %>%
+      dplyr::select(GeneID) %>%
+      deframe() %>%
+      unique()
+    rfp <- rfp %>% filter(!GeneID %in% extreme.stalls)
+  }
+  
+  if (!is.null(final_position))
+  {
+    rfp <- rfp %>% 
+      filter(Position <= final_position)
+  }
+  
+  if (!is.null(trim_5))
+  {
+    rfp <- rfp %>% 
+      filter(Position > trim_5) %>% 
+      mutate(Position = Position - trim_5)
+  }
+  
+  if (!is.null(trim_3))
+  {
+    length.per.gene <- rfp %>% 
+      group_by(GeneID) %>%
+      summarize(Length=n())
+    rfp <- rfp %>% 
+      left_join(length.per.gene,by="GeneID")
+    rfp <- rfp %>% 
+      mutate(Rel.to.3.end = Length - Position) %>%
+      filter(Rel.to.3.end > trim_3) %>%
+      dplyr::select(-Length,-Rel.to.3.end)
+  }
+  
+  
+  
+  if(!is.null(num_genes))
+  {
+    gene.names <- unique(rfp$GeneID)
+    num.genes.remaining <- length(gene.names)
+    if (num.genes.remaining > num_genes)
+    {
+      genes.to.keep <- sample(gene.names,size=num_genes,replace = F)
+      rfp <- rfp %>% 
+        filter(GeneID %in% genes.to.keep)
+    }
+  }
+  
+  if ("ORF" %in% colnames(phi))
+  {
+    phi <- phi %>% column_to_rownames("ORF")
+  } else{
+    phi <- phi %>% column_to_rownames("GeneID")
+  }
+  phi <- phi[unique(rfp$GeneID),,drop=F]
+  phi <- phi %>% rownames_to_column("GeneID")
+  
+  print(str_c("Remaining number of genes: ",nrow(phi)))
+  write_csv(rfp,file=file.path(output_dir,output_rfp))
+  write_csv(phi,file=file.path(output_dir,output_phi))
+}
+
+```
+
+## 11-16-2022
+
+```{r}
+input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames.csv"
+output_dir <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/"
+output_rfp <- "2022-11-16_2_mohammad_etal_2019_L33_all_frames.csv"
+phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames_phi.csv"
+output_phi <- "2022-11-16_2_mohammad_etal_2019_L33_all_frames_phi.csv"
+min_length_gene <- 100
+min_read_counts_per_pos <- 0.5
+remove_pause_sites <- 8
+exclude_these_genes <- "/data2/cope/Nonsense_error_rates/Data/proteins_to_exclude_ecoli.txt"
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts_per_pos = min_read_counts_per_pos,
+                      remove_pause_sites = remove_pause_sites,
+                      exclude_these_genes = exclude_these_genes)
+
+```
+## 11 - 17 - 2022
+
+```{r}
+input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames.csv"
+output_dir <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/"
+output_rfp <- "2022-11-17_mohammad_etal_2019_L33_all_frames_ramp_50_front.csv"
+phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames_phi.csv"
+output_phi <- "2022-11-17_mohammad_etal_2019_L33_all_frames_ramp_50_front_phi.csv"
+min_length_gene <- 100
+final_position <- 50
+min_read_counts_per_pos <- 0.5
+remove_pause_sites <- 8
+exclude_these_genes <- "/data2/cope/Nonsense_error_rates/Data/proteins_to_exclude_ecoli.txt"
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts_per_pos = min_read_counts_per_pos,
+                      final_position = final_position,
+                      remove_pause_sites = remove_pause_sites,
+                      exclude_these_genes = exclude_these_genes)
+
+
+input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames.csv"
+output_dir <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/"
+output_rfp <- "2022-11-17_mohammad_etal_2019_L33_all_frames_ramp_50_back.csv"
+phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames_phi.csv"
+output_phi <- "2022-11-17_mohammad_etal_2019_L33_all_frames_ramp_50_back_phi.csv"
+min_length_gene <- 100
+trim_5 <- 50
+min_read_counts_per_pos <- 0.5
+remove_pause_sites <- 8
+exclude_these_genes <- "/data2/cope/Nonsense_error_rates/Data/proteins_to_exclude_ecoli.txt"
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts_per_pos = min_read_counts_per_pos,
+                      trim_5 = trim_5,
+                      remove_pause_sites = remove_pause_sites,
+                      exclude_these_genes = exclude_these_genes)
+
+
+```
+
+```{r}
+input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames.csv"
+output_dir <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/"
+output_rfp <- "2022-11-17_mohammad_etal_2019_L33_all_frames_ramp_99_front.csv"
+phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames_phi.csv"
+output_phi <- "2022-11-17_mohammad_etal_2019_L33_all_frames_ramp_99_front_phi.csv"
+min_length_gene <- 100
+final_position <- 99
+min_read_counts_per_pos <- 0.5
+remove_pause_sites <- 8
+exclude_these_genes <- "/data2/cope/Nonsense_error_rates/Data/proteins_to_exclude_ecoli.txt"
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts_per_pos = min_read_counts_per_pos,
+                      final_position = final_position,
+                      remove_pause_sites = remove_pause_sites,
+                      exclude_these_genes = exclude_these_genes)
+
+
+input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames.csv"
+output_dir <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/"
+output_rfp <- "2022-11-17_mohammad_etal_2019_L33_all_frames_ramp_99_back.csv"
+phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames_phi.csv"
+output_phi <- "2022-11-17_mohammad_etal_2019_L33_all_frames_ramp_99_back_phi.csv"
+min_length_gene <- 100
+trim_5 <- 99
+min_read_counts_per_pos <- 0.5
+remove_pause_sites <- 8
+exclude_these_genes <- "/data2/cope/Nonsense_error_rates/Data/proteins_to_exclude_ecoli.txt"
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts_per_pos = min_read_counts_per_pos,
+                      trim_5 = trim_5,
+                      remove_pause_sites = remove_pause_sites,
+                      exclude_these_genes = exclude_these_genes)
+
+
+```
+
+
+
+## 11-18-2022
+
+```{r}
+input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames.csv"
+output_dir <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/"
+output_rfp <- "2022-11-18_mohammad_etal_2019_L33_all_frames_ramp_150_front.csv"
+phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames_phi.csv"
+output_phi <- "2022-11-18_mohammad_etal_2019_L33_all_frames_ramp_150_front_phi.csv"
+min_length_gene <- 200
+final_position <- 150
+min_read_counts_per_pos <- 0.5
+remove_pause_sites <- 8
+exclude_these_genes <- "/data2/cope/Nonsense_error_rates/Data/proteins_to_exclude_ecoli.txt"
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts_per_pos = min_read_counts_per_pos,
+                      final_position = final_position,
+                      remove_pause_sites = remove_pause_sites,
+                      exclude_these_genes = exclude_these_genes)
+
+
+input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames.csv"
+output_dir <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/"
+output_rfp <- "2022-11-17_mohammad_etal_2019_L33_all_frames_ramp_150_back.csv"
+phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames_phi.csv"
+output_phi <- "2022-11-16_mohammad_etal_2019_L33_all_frames_ramp_150_back_phi.csv"
+min_length_gene <- 200
+trim_5 <- 150
+min_read_counts_per_pos <- 0.5
+remove_pause_sites <- 8
+exclude_these_genes <- "/data2/cope/Nonsense_error_rates/Data/proteins_to_exclude_ecoli.txt"
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts_per_pos = min_read_counts_per_pos,
+                      trim_5 = trim_5,
+                      remove_pause_sites = remove_pause_sites,
+                      exclude_these_genes = exclude_these_genes)
+
+
+```
+
+## 11-19-2022
+
+```{r}
+input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames.csv"
+output_dir <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/"
+output_rfp <- "2022-11-19_mohammad_etal_2019_L33_all_frames.csv"
+phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames_phi.csv"
+output_phi <- "2022-11-19_mohammad_etal_2019_L33_all_frames_phi.csv"
+min_length_gene <- 100
+min_read_counts_per_pos <- 0.5
+remove_pause_sites <- 6
+exclude_these_genes <- "/data2/cope/Nonsense_error_rates/Data/proteins_to_exclude_ecoli.txt"
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts_per_pos = min_read_counts_per_pos,
+                      remove_pause_sites = remove_pause_sites,
+                      exclude_these_genes = exclude_these_genes)
+
+```
+
+## 11-24-2022
+```{r}
+input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames.csv"
+output_dir <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/"
+output_rfp <- "2022-11-24_mohammad_etal_2019_L33_all_frames.csv"
+phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames_phi.csv"
+output_phi <- "2022-11-24_mohammad_etal_2019_L33_all_frames_phi.csv"
+min_length_gene <- 300
+min_read_counts_per_pos <- 0.5
+remove_pause_sites <- 8
+exclude_these_genes <- "/data2/cope/Nonsense_error_rates/Data/proteins_to_exclude_ecoli.txt"
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts_per_pos = min_read_counts_per_pos,
+                      remove_pause_sites = remove_pause_sites,
+                      exclude_these_genes = exclude_these_genes)
+
+input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames.csv"
+output_dir <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/"
+output_rfp <- "2022-11-24_mohammad_etal_2019_L33_all_frames_ramp_200_front.csv"
+phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames_phi.csv"
+output_phi <- "2022-11-24_mohammad_etal_2019_L33_all_frames_ramp_200_front_phi.csv"
+min_length_gene <- 300
+final_position <- 200
+min_read_counts_per_pos <- 0.5
+remove_pause_sites <- 8
+exclude_these_genes <- "/data2/cope/Nonsense_error_rates/Data/proteins_to_exclude_ecoli.txt"
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts_per_pos = min_read_counts_per_pos,
+                      final_position = final_position,
+                      remove_pause_sites = remove_pause_sites,
+                      exclude_these_genes = exclude_these_genes)
+
+
+input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames.csv"
+output_dir <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/"
+output_rfp <- "2022-11-24_mohammad_etal_2019_L33_all_frames_ramp_200_back.csv"
+phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames_phi.csv"
+output_phi <- "2022-11-24_mohammad_etal_2019_L33_all_frames_ramp_200_back_phi.csv"
+min_length_gene <- 300
+trim_5 <- 200
+min_read_counts_per_pos <- 0.5
+remove_pause_sites <- 8
+exclude_these_genes <- "/data2/cope/Nonsense_error_rates/Data/proteins_to_exclude_ecoli.txt"
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts_per_pos = min_read_counts_per_pos,
+                      trim_5 = trim_5,
+                      remove_pause_sites = remove_pause_sites,
+                      exclude_these_genes = exclude_these_genes)
+
+
+```
+
+
+```{r}
+input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames.csv"
+output_dir <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/"
+output_rfp <- "2022-11-24_2_mohammad_etal_2019_L33_all_frames.csv"
+phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames_phi.csv"
+output_phi <- "2022-11-24_2_mohammad_etal_2019_L33_all_frames_phi.csv"
+min_length_gene <- 100
+min_read_counts_per_pos <- 0.5
+remove_pause_sites <- 8
+exclude_these_genes <- "/data2/cope/Nonsense_error_rates/Data/proteins_to_exclude_w_membrane_ecoli.txt"
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts_per_pos = min_read_counts_per_pos,
+                      remove_pause_sites = remove_pause_sites,
+                      exclude_these_genes = exclude_these_genes)
+
+
+
+
+```
+
+
+## 11-25-2022
+```{r}
+input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames.csv"
+output_dir <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/"
+output_rfp <- "2022-11-25_mohammad_etal_2019_L33_all_frames.csv"
+phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames_phi.csv"
+output_phi <- "2022-11-25_mohammad_etal_2019_L33_all_frames_phi.csv"
+min_length_gene <- 100
+min_read_counts_per_pos <- 0.5
+remove_pause_sites <- 6
+exclude_these_genes <- "/data2/cope/Nonsense_error_rates/Data/proteins_to_exclude_w_membrane_ecoli.txt"
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts_per_pos = min_read_counts_per_pos,
+                      remove_pause_sites = remove_pause_sites,
+                      exclude_these_genes = exclude_these_genes)
+
+
+
+
+```
+
+```{r}
+input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames.csv"
+output_dir <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/"
+output_rfp <- "2022-11-24_2_mohammad_etal_2019_L33_all_frames_ramp_99_front.csv"
+phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames_phi.csv"
+output_phi <- "2022-11-24_2_mohammad_etal_2019_L33_all_frames_ramp_99_front_phi.csv"
+min_length_gene <- 100
+final_position <- 99
+min_read_counts_per_pos <- 0.5
+remove_pause_sites <- 8
+exclude_these_genes <- "/data2/cope/Nonsense_error_rates/Data/proteins_to_exclude_w_membrane_ecoli.txt"
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts_per_pos = min_read_counts_per_pos,
+                      final_position = final_position,
+                      remove_pause_sites = remove_pause_sites,
+                      exclude_these_genes = exclude_these_genes)
+
+
+input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames.csv"
+output_dir <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/"
+output_rfp <- "2022-11-24_2_mohammad_etal_2019_L33_all_frames_ramp_99_back.csv"
+phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/RemoveStart/Ecoli/Mohammad_etal_2019/mohammad_etal_2019_L33_all_frames_phi.csv"
+output_phi <- "2022-11-24_2_mohammad_etal_2019_L33_all_frames_ramp_99_back_phi.csv"
+min_length_gene <- 100
+trim_5 <- 99
+min_read_counts_per_pos <- 0.5
+remove_pause_sites <- 8
+exclude_these_genes <- "/data2/cope/Nonsense_error_rates/Data/proteins_to_exclude_w_membrane_ecoli.txt"
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts_per_pos = min_read_counts_per_pos,
+                      trim_5 = trim_5,
+                      remove_pause_sites = remove_pause_sites,
+                      exclude_these_genes = exclude_these_genes)
+
+
+
+```
+
+
+## 12-05-2022
+
+```{r}
+
+
+cutoffs <- c(50,100,150,200,250)
+
+for (i in cutoffs)
+{
+  input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Simulated/Mohammad_etal_2019_L33_Cytoplasm_PA/simulated_rfp.csv"
+  min_read_counts_per_pos <- 0.5
+  remove_pause_sites <- 8
+  min_length_gene <- 100
+  exclude_these_genes <- "/data2/cope/Nonsense_error_rates/Data/proteins_to_exclude_w_membrane_ecoli.txt"
+  
+  
+  dir.create(paste0("/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Simulated/Mohammad_etal_2019_L33_Cytoplasm_PA/",as.character(i)))
+  output_dir <- paste0("/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Simulated/Mohammad_etal_2019_L33_Cytoplasm_PA/",i,"/Ramp/")
+  output_rfp <- "simulated_ramp.csv"
+  phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Simulated/Mohammad_etal_2019_L33_Cytoplasm_PA/phi.csv"
+  output_phi <- "phi.csv"
+  final_position <- i
+  filterDataset(input = input,
+                        output_dir = output_dir,
+                        output_rfp = output_rfp,
+                        phi = phi,
+                        output_phi = output_phi,
+                        min_length_gene = min_length_gene,
+                        min_read_counts_per_pos = min_read_counts_per_pos,
+                        final_position = final_position,
+                        remove_pause_sites = remove_pause_sites,
+                        exclude_these_genes = exclude_these_genes)
+  
+  
+  output_dir <- paste0("/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Simulated/Mohammad_etal_2019_L33_Cytoplasm_PA/",i,"/Remaining/")
+  output_rfp <- "simulated_remaining.csv"
+  phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Simulated/Mohammad_etal_2019_L33_Cytoplasm_PA/phi.csv"
+  output_phi <- "phi.csv"
+  trim_5 <- i
+  filterDataset(input = input,
+                        output_dir = output_dir,
+                        output_rfp = output_rfp,
+                        phi = phi,
+                        output_phi = output_phi,
+                        min_length_gene = min_length_gene,
+                        min_read_counts_per_pos = min_read_counts_per_pos,
+                        trim_5 = trim_5,
+                        remove_pause_sites = remove_pause_sites,
+                        exclude_these_genes = exclude_these_genes)
+
+
+}
+
+```
+
+
+```{r}
+
+
+cutoffs <- c(50,100,150,200,250)
+
+for (i in cutoffs)
+{
+  input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Simulated/Mohammad_etal_2019_L33_Cytoplasm_PANSE//simulated_rfp.csv"
+  min_read_counts_per_pos <- 0.5
+  remove_pause_sites <- 8
+  min_length_gene <- 100
+  exclude_these_genes <- "/data2/cope/Nonsense_error_rates/Data/proteins_to_exclude_w_membrane_ecoli.txt"
+  
+  
+  dir.create(paste0("/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Simulated/Mohammad_etal_2019_L33_Cytoplasm_PANSE//",as.character(i)))
+  output_dir <- paste0("/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Simulated/Mohammad_etal_2019_L33_Cytoplasm_PANSE//",i,"/Ramp/")
+  output_rfp <- "simulated_ramp.csv"
+  phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Simulated/Mohammad_etal_2019_L33_Cytoplasm_PANSE//phi.csv"
+  output_phi <- "phi.csv"
+  final_position <- i
+  filterDataset(input = input,
+                        output_dir = output_dir,
+                        output_rfp = output_rfp,
+                        phi = phi,
+                        output_phi = output_phi,
+                        min_length_gene = min_length_gene,
+                        min_read_counts_per_pos = min_read_counts_per_pos,
+                        final_position = final_position,
+                        remove_pause_sites = remove_pause_sites,
+                        exclude_these_genes = exclude_these_genes)
+  
+  
+  output_dir <- paste0("/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Simulated/Mohammad_etal_2019_L33_Cytoplasm_PANSE//",i,"/Remaining/")
+  output_rfp <- "simulated_remaining.csv"
+  phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Simulated/Mohammad_etal_2019_L33_Cytoplasm_PANSE//phi.csv"
+  output_phi <- "phi.csv"
+  trim_5 <- i
+  filterDataset(input = input,
+                        output_dir = output_dir,
+                        output_rfp = output_rfp,
+                        phi = phi,
+                        output_phi = output_phi,
+                        min_length_gene = min_length_gene,
+                        min_read_counts_per_pos = min_read_counts_per_pos,
+                        trim_5 = trim_5,
+                        remove_pause_sites = remove_pause_sites,
+                        exclude_these_genes = exclude_these_genes)
+
+
+}
+
+```
+
+
+
+## 12-09-2022
+
+```{r}
+
+
+cutoffs <- c(50,100,150,200,250)
+
+for (i in cutoffs)
+{
+  input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Ecoli/Mohammad_etal_2019/L33/All_frames/Full_genome/mohammad_etal_2019_L33_all_frames.csv"
+  min_read_counts_per_pos <- 0.5
+  remove_pause_sites <- 8
+  min_length_gene <- 100
+  exclude_these_genes <- "/data2/cope/Nonsense_error_rates/Data/proteins_to_exclude_w_membrane_ecoli.txt"
+  
+  
+  dir.create(paste0("/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Ecoli/Mohammad_etal_2019/L33/All_frames/Cytoplasm_only/",as.character(i)))
+  output_dir <- paste0("/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Ecoli/Mohammad_etal_2019/L33/All_frames/Cytoplasm_only/",i,"/Ramp/")
+  output_rfp <- "real_ramp.csv"
+  phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Ecoli/Mohammad_etal_2019/L33/All_frames/Full_genome/mohammad_etal_2019_L33_all_frames_phi.csv"
+  output_phi <- "phi.csv"
+  final_position <- i
+  filterDataset(input = input,
+                        output_dir = output_dir,
+                        output_rfp = output_rfp,
+                        phi = phi,
+                        output_phi = output_phi,
+                        min_length_gene = min_length_gene,
+                        min_read_counts_per_pos = min_read_counts_per_pos,
+                        final_position = final_position,
+                        remove_pause_sites = remove_pause_sites,
+                        exclude_these_genes = exclude_these_genes)
+  
+  
+  output_dir <- paste0("/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Ecoli/Mohammad_etal_2019/L33/All_frames/Cytoplasm_only/",i,"/Remaining/")
+  output_rfp <- "real_remaining.csv"
+  phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Ecoli/Mohammad_etal_2019/L33/All_frames/Full_genome/mohammad_etal_2019_L33_all_frames_phi.csv"
+  output_phi <- "phi.csv"
+  trim_5 <- i
+  filterDataset(input = input,
+                        output_dir = output_dir,
+                        output_rfp = output_rfp,
+                        phi = phi,
+                        output_phi = output_phi,
+                        min_length_gene = min_length_gene,
+                        min_read_counts_per_pos = min_read_counts_per_pos,
+                        trim_5 = trim_5,
+                        remove_pause_sites = remove_pause_sites,
+                        exclude_these_genes = exclude_these_genes)
+
+
+}
+
+```
+# 12-30-2022
+
+```{r}
+
+input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/weinberg_etal_2016_all_frames.csv"
+output_dir <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/"
+output_rfp <- "2022-12-30_weinberg_etal_2016_all_frames.csv"
+phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/weinberg_etal_2016_all_frames_phi.csv"
+output_phi <- "2022-12-30_weinberg_etal_2016_all_frames_phi.csv"
+min_length_gene <- 100
+min_read_counts_per_pos <- 0.5
+remove_pause_sites <- 8
+exclude_these_genes <- "/data2/cope/Nonsense_error_rates/Data/proteins_to_exclude_w_membrane_scer.txt"
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts_per_pos = min_read_counts_per_pos,
+                      remove_pause_sites = remove_pause_sites,
+                      exclude_these_genes = exclude_these_genes)
+
+data <- read_csv("/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/2022-12-30_weinberg_etal_2016_all_frames.csv")
+for (i in seq(0,200,50))
+{
+  data.w.mix <- data %>% 
+    mutate(Mixture = ifelse(Position < i,2,1)) %>%
+    dplyr::select(GeneID,Position,Codon,Mixture,RFPCount)
+  filename <- paste0("2022-12-30_weinberg_etal_2016_all_frames_",i,"_ramp.csv")
+  write_csv(data.w.mix,file=file.path(output_dir,filename))
+}
+```
+
+
+# 01-05-2022
+
+
+## Subramaniam et al. 2014
+
+### YesLeu
+```{r}
+
+input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Ecoli/Subramaniam_etal_2014/YesLeu/All_frames/Full_genome/subramaniam_etal_2014_yesleu_20_40.csv"
+output_dir <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Ecoli/Subramaniam_etal_2014/YesLeu/All_frames/Full_genome/"
+output_rfp <- "2023-01-05_subramaniam_etal_2014_all_frames.csv"
+phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Ecoli/Subramaniam_etal_2014/YesLeu/All_frames/Full_genome/subramaniam_etal_2014_yesleu_20_40_phi.csv"
+output_phi <- "2023-01-05_subramaniam_etal_2014_all_frames_phi.csv"
+min_length_gene <- NULL
+min_read_counts_per_pos <- NULL
+remove_pause_sites <- NULL
+exclude_these_genes <- NULL
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts_per_pos = min_read_counts_per_pos,
+                      remove_pause_sites = remove_pause_sites,
+                      exclude_these_genes = exclude_these_genes)
+
+data <- read_csv("/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Ecoli/Subramaniam_etal_2014/YesLeu/All_frames/Full_genome//2023-01-05_subramaniam_etal_2014_all_frames.csv")
+for (i in seq(0,200,50))
+{
+  data.w.mix <- data %>% 
+    mutate(Mixture = ifelse(Position < i,2,1)) %>%
+    dplyr::select(GeneID,Position,Codon,Mixture,RFPCount)
+  filename <- paste0("2023-01-05_subramaniam_etal_2014_all_frames_",i,"_ramp.csv")
+  write_csv(data.w.mix,file=file.path(output_dir,filename))
+}
+
+```
+
+### YesSer
+```{r}
+
+input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Ecoli/Subramaniam_etal_2014/YesSer/All_frames/Full_genome/subramaniam_etal_2014_yesser_20_40.csv"
+output_dir <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Ecoli/Subramaniam_etal_2014/YesSer/All_frames/Full_genome//"
+output_rfp <- "2023-01-05_subramaniam_etal_2014_all_frames.csv"
+phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Ecoli/Subramaniam_etal_2014/YesSer/All_frames/Full_genome/subramaniam_etal_2014_yesser_20_40_phi.csv"
+output_phi <- "2023-01-05_subramaniam_etal_2014_all_frames_phi.csv"
+min_length_gene <- NULL
+min_read_counts_per_pos <- NULL
+remove_pause_sites <- NULL
+exclude_these_genes <- NULL
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts_per_pos = min_read_counts_per_pos,
+                      remove_pause_sites = remove_pause_sites,
+                      exclude_these_genes = exclude_these_genes)
+
+data <- read_csv("/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Ecoli/Subramaniam_etal_2014/YesSer/All_frames/Full_genome/2023-01-05_subramaniam_etal_2014_all_frames.csv")
+for (i in seq(0,200,50))
+{
+  data.w.mix <- data %>% 
+    mutate(Mixture = ifelse(Position < i,2,1)) %>%
+    dplyr::select(GeneID,Position,Codon,Mixture,RFPCount)
+  filename <- paste0("2023-01-05_subramaniam_etal_2014_all_frames_",i,"_ramp.csv")
+  write_csv(data.w.mix,file=file.path(output_dir,filename))
+}
+
+```
+
+## Haft et al. 2014
+
+### No ethanal -- Replicate 1
+```{r}
+
+input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Ecoli/Haft_etal_2014/No_ethanol_1/All_frames/Full_genome/haft_etal_2014_no_ethanol_1_20_40.csv"
+output_dir <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Ecoli/Haft_etal_2014/No_ethanol_1/All_frames/Full_genome/"
+output_rfp <- "2023-01-05_haft_etal_2014_all_frames.csv"
+phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Ecoli/Haft_etal_2014/No_ethanol_1/All_frames/Full_genome/haft_etal_2014_no_ethanol_1_20_40_phi.csv"
+output_phi <- "2023-01-05_haft_etal_2014_all_frames_phi.csv"
+min_length_gene <- NULL
+min_read_counts_per_pos <- NULL
+remove_pause_sites <- NULL
+exclude_these_genes <- NULL
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts_per_pos = min_read_counts_per_pos,
+                      remove_pause_sites = remove_pause_sites,
+                      exclude_these_genes = exclude_these_genes)
+data <- read_csv("/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Ecoli/Haft_etal_2014/No_ethanol_1//All_frames/Full_genome//2023-01-05_haft_etal_2014_all_frames.csv")
+for (i in seq(0,200,50))
+{
+  data.w.mix <- data %>% 
+    mutate(Mixture = ifelse(Position < i,2,1)) %>%
+    dplyr::select(GeneID,Position,Codon,Mixture,RFPCount)
+  filename <- paste0("2023-01-05_haft_etal_2014_all_frames_",i,"_ramp.csv")
+  write_csv(data.w.mix,file=file.path(output_dir,filename))
+}
+```
+
+```{r}
+
+input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Ecoli/Haft_etal_2014/No_ethanol_2/All_frames/Full_genome/haft_etal_2014_no_ethanol_2_20_40.csv"
+output_dir <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Ecoli/Haft_etal_2014/No_ethanol_2/All_frames/Full_genome//"
+output_rfp <- "2023-01-05_haft_etal_2014_all_frames.csv"
+phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Ecoli/Haft_etal_2014/No_ethanol_2/All_frames/Full_genome/haft_etal_2014_no_ethanol_2_20_40_phi.csv"
+output_phi <- "2023-01-05_haft_etal_2014_all_frames_phi.csv"
+min_length_gene <- NULL
+min_read_counts_per_pos <- NULL
+remove_pause_sites <- NULL
+exclude_these_genes <- NULL
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts_per_pos = min_read_counts_per_pos,
+                      remove_pause_sites = remove_pause_sites,
+                      exclude_these_genes = exclude_these_genes)
+data <- read_csv("/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Ecoli/Haft_etal_2014/No_ethanol_2//All_frames/Full_genome//2023-01-05_haft_etal_2014_all_frames.csv")
+for (i in seq(0,200,50))
+{
+  data.w.mix <- data %>% 
+    mutate(Mixture = ifelse(Position < i,2,1)) %>%
+    dplyr::select(GeneID,Position,Codon,Mixture,RFPCount)
+  filename <- paste0("2023-01-05_haft_etal_2014_all_frames_",i,"_ramp.csv")
+  write_csv(data.w.mix,file=file.path(output_dir,filename))
+}
+```
+
+## Weinberg
+
+To test the effects of key filtering parameters, turn all filtering parameters off other than filtering mitochondrial sequences.
+
+```{r}
+
+input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/weinberg_etal_2016_all_frames.csv"
+output_dir <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/"
+output_rfp <- "2023-01-05_weinberg_etal_2016_all_frames.csv"
+phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/weinberg_etal_2016_all_frames_phi.csv"
+output_phi <- "2023-01-05_weinberg_etal_2016_all_frames_phi.csv"
+min_length_gene <- 0
+min_read_counts <- 1
+remove_pause_sites <- NULL
+exclude_these_genes <- "/data2/cope/Nonsense_error_rates/Data/scer_mito_proteins.txt"
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts = min_read_counts,
+                      remove_pause_sites = remove_pause_sites,
+                      exclude_these_genes = exclude_these_genes)
+
+data <- read_csv("/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-01-05_weinberg_etal_2016_all_frames.csv")
+for (i in seq(0,200,50))
+{
+  data.w.mix <- data %>% 
+    mutate(Mixture = ifelse(Position < i,2,1)) %>%
+    dplyr::select(GeneID,Position,Codon,Mixture,RFPCount)
+  filename <- paste0("2023-01-05_weinberg_etal_2016_all_frames_",i,"_ramp.csv")
+  write_csv(data.w.mix,file=file.path(output_dir,filename))
+}
+```
+# 01-06-2023
+
+## Create Weinberg subsample based on previous run for direct comparison of results
+
+```{r}
+target.data <- read_csv("../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/weinberg_etal_2016_3000_genes_min_50_reads_min_50_codons.csv")
+new.data.full <- read_csv("../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-01-05_weinberg_etal_2016_all_frames.csv")
+new.data.full.phi <- read_csv("../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-01-05_weinberg_etal_2016_all_frames_phi.csv")
+
+new.data.sub <- new.data.full %>%
+  filter(GeneID %in% target.data$GeneID)
+new.data.sub.phi <- new.data.full.phi %>%
+  filter(GeneID %in% target.data$GeneID)
+
+order.genes <- unique(new.data.sub$GeneID)
+
+new.data.sub.phi <- new.data.sub.phi %>%
+  dplyr::slice(match(order.genes,GeneID))
+
+write_csv(new.data.sub,"../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-01-06_weinberg_etal_3000_genes_compare_old_run.csv")
+write_csv(new.data.sub.phi,"../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-01-06_weinberg_etal_3000_genes_compare_old_run_phi.csv")
+
+new.data.sub.mix <- new.data.sub %>% 
+    mutate(Mixture = 1) %>%
+    dplyr::select(GeneID,Position,Codon,Mixture,RFPCount)
+write_csv(new.data.sub.mix,file="../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-01-06_weinberg_etal_3000_genes_compare_old_run_ramp_0.csv")
+```
+## 01-14-2023
+
+### Weinberg
+Want to create data set with first 50 codons removed
+
+```{r}
+
+input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Cytoplasm_only/2022-12-30_weinberg_etal_2016_all_frames_50_ramp.csv"
+output_dir <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Cytoplasm_only/"
+output_rfp <- "2022-12-30_weinberg_etal_2016_all_frames_remove_50_ramp.csv"
+
+rfp <- read_csv(input)
+rfp.ramp.remove <- rfp %>% 
+  filter(Mixture != 2) %>%
+  mutate(Position = Position - 49)
+  
+write_csv(rfp.ramp.remove,file.path(output_dir,output_rfp))
+
+```
+
+
+
+## 03-02-2023
+
+```{r}
+genes.3000 <- read_csv("../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-01-06_weinberg_etal_3000_genes_compare_old_run_ramp_0.csv")
+genes.3000.phi <- read_csv("../Parameters_for_initializing_runs/PANSE/Scerevisiae/Weinberg/2023-01-06_Weinberg_etal_2016_3000_genes_compare_old_run/phi.csv")
+
+subcell <- read_tsv("../Data/uniprot-scer-2023.03.02-16.17.00.08.tsv") %>%
+  dplyr::rename(GeneID=`Gene Names (ordered locus)`)
+
+gene.ids <- str_split(subcell$GeneID,"; ")
+gene.ids <- lapply(gene.ids,function(x){
+  tmp <- x[which(x %in% genes.3000$GeneID)]
+  if (length(tmp) == 0) {
+    tmp <- x[1]
+  }
+  return(tmp)
+}) %>% unlist()
+
+subcell <- subcell %>% mutate(GeneID = gene.ids)
+
+loc <- subcell %>% 
+  mutate(Location = case_when(
+   str_detect(`Subcellular location [CC]`,"Cytoplasm(?!ic)") | str_detect(`Subcellular location [CC]`,"Nucleus") | (is.na(`Subcellular location [CC]`) & is.na(Transmembrane) & is.na(Intramembrane) & is.na(`Signal peptide`) & is.na(`Topological domain`) & is.na(`Transit peptide`)) ~ "Cytoplasm/Nucleus" ,
+    TRUE ~ "Other")
+) %>%
+  dplyr::select(GeneID,Location)
+
+genes.3000 <- genes.3000 %>%
+  left_join(loc,by="GeneID")
+genes.3000.phi <- genes.3000.phi %>%
+  left_join(loc,by="GeneID")
+
+genes.3000.cyto <- genes.3000 %>% 
+  filter(Location == "Cytoplasm/Nucleus") %>%
+  dplyr::select(-Location)
+genes.3000.other <- genes.3000 %>% 
+  filter(Location != "Cytoplasm/Nucleus") %>%
+  dplyr::select(-Location)
+cyto.genes <- genes.3000.cyto %>% 
+  dplyr::select(GeneID) %>% 
+  deframe() %>% 
+  unique()
+other.genes <- genes.3000.other %>% 
+  dplyr::select(GeneID) %>% 
+  deframe() %>% 
+  unique()
+genes.3000.cyto.phi <- genes.3000.phi %>% 
+  filter(GeneID %in% cyto.genes)
+genes.3000.other.phi <- genes.3000.phi %>% 
+  filter(GeneID %in% other.genes)
+
+write_csv(genes.3000.cyto,"../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Cytoplasm_only/2023-03-02_weinberg_etal_2016_all_frames.csv")
+write_csv(genes.3000.other,"../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Membrane_only/2023-03-02_weinberg_etal_2016_all_frames.csv")
+
+write_csv(genes.3000.cyto.phi %>% dplyr::select(-Location),"../Parameters_for_initializing_runs/PANSE/Scerevisiae/Weinberg/2023-01-06_Weinberg_etal_2016_3000_genes_compare_old_run/phi_cyto.csv")
+write_csv(genes.3000.other.phi  %>% dplyr::select(-Location),"../Parameters_for_initializing_runs/PANSE/Scerevisiae/Weinberg/2023-01-06_Weinberg_etal_2016_3000_genes_compare_old_run/phi_other.csv")
+```
+
+
+## 04-13-2023
+
+```{r}
+
+input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/weinberg_etal_2016_all_frames.csv"
+output_dir <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/"
+output_rfp <- "2023-04-13_weinberg_etal_2016_all_frames.csv"
+phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/weinberg_etal_2016_all_frames_phi.csv"
+output_phi <- "2023-04-13_weinberg_etal_2016_all_frames_phi.csv"
+min_length_gene <- 0
+min_read_counts <- 1
+remove_pause_sites <- 1.96*3.75 #chosen to get us close to 3,000 genes
+exclude_these_genes <- "/data2/cope/Nonsense_error_rates/Data/scer_mito_proteins.txt"
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts = min_read_counts,
+                      remove_pause_sites = remove_pause_sites,
+                      exclude_these_genes = exclude_these_genes)
+
+data <- read_csv("/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-04-13_weinberg_etal_2016_all_frames.csv")
+for (i in seq(0,200,50))
+{
+  data.w.mix <- data %>% 
+    mutate(Mixture = ifelse(Position < i,2,1)) %>%
+    dplyr::select(GeneID,Position,Codon,Mixture,RFPCount)
+  filename <- paste0("2023-04-13_weinberg_etal_2016_all_frames_",i,"_ramp.csv")
+  write_csv(data.w.mix,file=file.path(output_dir,filename))
+}
+```
+
+```{r}
+set.seed(2)
+data <- read_csv("../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-04-13_weinberg_etal_2016_all_frames_0_ramp.csv")
+phi <- read_csv("../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-04-13_weinberg_etal_2016_all_frames_phi.csv")
+gene.ids <- unique(data$GeneID)
+geneset.1 <- sample(x=gene.ids,size = floor(length(gene.ids)/2),replace = F)
+
+data.1 <- data %>%
+  filter(GeneID %in% geneset.1)
+phi.1 <- phi %>%
+  filter(GeneID %in% geneset.1)
+data.2 <- data %>%
+  filter(!GeneID %in% geneset.1)
+phi.2 <- phi %>%
+  filter(!GeneID %in% geneset.1)
+
+
+```
+
+```{r}
+t.test(phi.1$tpm,phi.2$tpm)
+wilcox.test(phi.1$tpm,phi.2$tpm)
+
+data.1.length <- data.1 %>%
+  group_by(GeneID) %>%
+  summarize(Length=n()) 
+
+data.2.length <- data.2 %>%
+  group_by(GeneID) %>%
+  summarize(Length=n()) 
+ 
+t.test(data.1.length$Length,data.2.length$Length)
+wilcox.test(data.1.length$Length,data.2.length$Length)
+
+range(data.1.length$Length)
+range(data.2.length$Length)
+
+write_csv(data.1,"../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-04-13_weinberg_etal_2016_all_frames_subset_1_0_ramp.csv")
+write_csv(phi.1,"../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-04-13_weinberg_etal_2016_all_frames_subset_1_phi.csv")
+
+write_csv(data.2,"../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-04-13_weinberg_etal_2016_all_frames_subset_2_0_ramp.csv")
+write_csv(phi.2,"../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-04-13_weinberg_etal_2016_all_frames_subset_2_phi.csv")
+
+```
+
+
+
+## 04-15-2023
+
+Meant to be compared to data from 4-13-2023
+```{r}
+set.seed(2)
+input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/weinberg_etal_2016_all_frames.csv"
+output_dir <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/"
+output_rfp <- "2023-04-15_weinberg_etal_2016_all_frames.csv"
+phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/weinberg_etal_2016_all_frames_phi.csv"
+output_phi <- "2023-04-15_weinberg_etal_2016_all_frames_phi.csv"
+min_length_gene <- 0
+min_read_counts <- 1
+remove_pause_sites <- NULL #chosen to get us close to 3,000 genes
+exclude_these_genes <- "/data2/cope/Nonsense_error_rates/Data/scer_mito_proteins.txt"
+num_genes <- 3000
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts = min_read_counts,
+                      remove_pause_sites = remove_pause_sites,
+                      exclude_these_genes = exclude_these_genes,
+                      num_genes = 3000)
+
+data <- read_csv("/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-04-15_weinberg_etal_2016_all_frames.csv")
+for (i in seq(0,200,50))
+{
+  data.w.mix <- data %>% 
+    mutate(Mixture = ifelse(Position < i,2,1)) %>%
+    dplyr::select(GeneID,Position,Codon,Mixture,RFPCount)
+  filename <- paste0("2023-04-15_weinberg_etal_2016_all_frames_",i,"_ramp.csv")
+  write_csv(data.w.mix,file=file.path(output_dir,filename))
+}
+
+
+
+```
+
+
+## 04-21-2021
+
+```{r}
+input <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/weinberg_etal_2016_all_frames.csv"
+output_dir <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/"
+output_rfp <- "2023-04-21_weinberg_etal_2016_all_frames.csv"
+phi <- "/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/weinberg_etal_2016_all_frames_phi.csv"
+output_phi <- "2023-04-21_weinberg_etal_2016_all_frames_phi.csv"
+min_length_gene <- 0
+min_read_counts <- 1
+remove_pause_sites <- NULL
+exclude_these_genes <- "/data2/cope/Nonsense_error_rates/Data/proteins_to_exclude_paralogs_mito_scer.txt"
+#exclude_these_genes <- NULL
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts = min_read_counts,
+                      remove_pause_sites = remove_pause_sites,
+                      exclude_these_genes = exclude_these_genes)
+
+data <- read_csv("/data2/cope/Nonsense_error_rates/Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-04-21_weinberg_etal_2016_all_frames.csv")
+for (i in seq(0,200,50))
+{
+  data.w.mix <- data %>% 
+    mutate(Mixture = ifelse(Position < i,2,1)) %>%
+    dplyr::select(GeneID,Position,Codon,Mixture,RFPCount)
+  filename <- paste0("2023-04-21_weinberg_etal_2016_all_frames_",i,"_ramp.csv")
+  write_csv(data.w.mix,file=file.path(output_dir,filename))
+}
+
+
+```
+
+
+## 05-08-2023
+
+```{r warning = F}
+library(broom)
+rfp <- read_csv("../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-04-21_weinberg_etal_2016_all_frames_0_ramp.csv")
+phi <- read_csv("../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-04-21_weinberg_etal_2016_all_frames_phi.csv")
+
+rfp.split <- rfp %>% 
+  group_by(GeneID) %>%
+  mutate(RFPDensity = RFPCount/mean(RFPCount)) %>%
+  split(f = as.factor(.$GeneID))
+
+cor.pos.rfp <- lapply(rfp.split,function(x){
+  cor.test(x$Position,x$RFPDensity,method="spearman",use="complete.obs") %>% tidy()
+}) %>% bind_rows(.id="GeneID")
+
+cor.pos.rfp <- cor.pos.rfp %>%
+  arrange(desc(estimate))
+
+rfp <- rfp %>% 
+  group_by(GeneID) %>% 
+  mutate(Is.zero = ifelse(RFPCount == 0,1,0),
+         Rel.Pos = Position/Position[which.max(Position)],
+         Rel.End = Position[which.max(Position)] - (Position - 1),
+         Pos.Group = case_when(
+            Rel.Pos <= 0.10 ~ "5_end",
+            Rel.Pos >= 0.75 ~ "3_end",
+            TRUE ~ "Otherwise"
+            )
+  )
+
+rfp.split <- rfp %>% 
+  split(~as.factor(GeneID))
+
+bn.test.result <- lapply(rfp.split,function(df){
+  df.sum <- df %>% 
+    group_by(Pos.Group) %>% 
+    summarize(Missing=sum(Is.zero),
+              Total = n())
+  x <- df.sum %>% filter(Pos.Group == "5_end")
+  ow <- df.sum %>% filter(Pos.Group == "3_end")
+  binom.test(x$Missing,n=x$Total,p=ow$Missing/ow$Total,alternative="greater") %>% tidy()
+}) %>% bind_rows(.id="GeneID")
+bn.test.result <- bn.test.result %>%
+  mutate(adj.p = p.adjust(p.value,method="BH"))
+
+
+
+rfp <- rfp %>%
+  group_by(GeneID) %>%
+  mutate(RFPDensity = RFPCount/mean(RFPCount,na.rm=T),
+         Log.RFPDensity = log(RFPDensity),
+         Log.RFPDensity = ifelse(is.finite(Log.RFPDensity),Log.RFPDensity,NA),
+         Z = (Log.RFPDensity - mean(Log.RFPDensity,na.rm = T))/sd(Log.RFPDensity,na.rm=T)
+  )
+
+
+z.score.cutoff <- rfp %>% 
+  filter(Z > 3.92) %>% 
+  dplyr::select(GeneID) %>% 
+  unique()  %>% 
+  deframe()
+cor.cutoff <- quantile(cor.pos.rfp$estimate,probs=c(0.05,0.95))
+cor.pos.rfp.cutoff <- cor.pos.rfp %>%
+  filter(estimate <= cor.cutoff[1] | estimate >= cor.cutoff[2]) %>% 
+  dplyr::select(GeneID) %>% 
+  unique() %>% 
+  deframe()
+binom.cutoff <- bn.test.result %>% 
+  filter(p.value < 0.05) %>% 
+  dplyr::select(GeneID) %>% 
+  unique()  %>% 
+  deframe()
+
+to.remove <-unique(c(z.score.cutoff,cor.pos.rfp.cutoff,binom.cutoff))
+rfp.filt <- rfp %>%
+  filter(!GeneID %in% to.remove) %>%
+  dplyr::select(GeneID,Position,Codon,Mixture,RFPCount)
+phi.filt <- phi %>%
+  filter(!GeneID %in% to.remove)
+
+write_csv(rfp.filt,"../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-05-08_weinberg_etal_2016_all_frames_0_ramp.csv")
+write_csv(phi.filt,"../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-05-08_weinberg_etal_2016_all_frames_phi.csv")
+```
+
+
+## 05-16-2023
+
+```{r}
+rfp <- read_csv("../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-05-08_weinberg_etal_2016_all_frames_0_ramp.csv")
+phi <- read_csv("../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-05-08_weinberg_etal_2016_all_frames_phi.csv")
+rfp.filt <- rfp %>%
+  group_by(GeneID) %>%
+  filter(Position[which.max(Position)] >= 125)
+phi.filt <- phi %>%
+  filter(GeneID %in% unique(rfp.filt$GeneID))
+
+rfp.filt.ramp <- rfp.filt %>%
+  mutate(Mixture = ifelse(Position <= 100,-1,1))
+
+write_csv(rfp.filt,"../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-05-16_weinberg_etal_2016_all_frames_0_ramp.csv")
+write_csv(rfp.filt.ramp,"../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-05-16_weinberg_etal_2016_all_frames_100_ramp.csv")
+write_csv(phi.filt,"../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-05-16_weinberg_etal_2016_all_frames_phi.csv")
+
+
+
+```
+
+
+## 06-12-2023
+
+```{r}
+rfp <- read_csv("../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-05-08_weinberg_etal_2016_all_frames_0_ramp.csv")
+phi <- read_csv("../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-05-08_weinberg_etal_2016_all_frames_phi.csv")
+rfp.filt <- rfp %>%
+  group_by(GeneID) %>%
+  filter(Position[which.max(Position)] >= 225)
+phi.filt <- phi %>%
+  filter(GeneID %in% unique(rfp.filt$GeneID))
+
+rfp.filt.ramp <- rfp.filt %>%
+  mutate(Mixture = ifelse(Position <= 200,-1,1))
+
+write_csv(rfp.filt,"../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-06-12_weinberg_etal_2016_all_frames_0_ramp.csv")
+write_csv(rfp.filt.ramp,"../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-06-12_weinberg_etal_2016_all_frames_100_ramp.csv")
+write_csv(phi.filt,"../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-06-12_weinberg_etal_2016_all_frames_phi.csv")
+
+
+
+```
+
+```{r}
+rfp <- read_csv("../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-05-08_weinberg_etal_2016_all_frames_0_ramp.csv")
+phi <- read_csv("../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-05-08_weinberg_etal_2016_all_frames_phi.csv")
+rfp.filt <- rfp %>%
+  group_by(GeneID) %>%
+  filter(Position[which.max(Position)] >= 225)
+phi.filt <- phi %>%
+  filter(GeneID %in% unique(rfp.filt$GeneID))
+
+rfp.filt.ramp <- rfp.filt %>%
+  mutate(Mixture = ifelse(Position <= 200,1,-1))
+
+write_csv(rfp.filt.ramp,"../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-07-06_weinberg_etal_2016_all_frames_ignore_post_200.csv")
+write_csv(phi.filt,"../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-07-06_weinberg_etal_2016_all_frames_phi.csv")
+
+
+
+```
+
+
+# 2023-12-28
+
+
+```{r}
+rfp <- read_csv("../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-05-08_weinberg_etal_2016_all_frames_0_ramp.csv")
+phi <- read_csv("../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-05-08_weinberg_etal_2016_all_frames_phi.csv")
+
+overlapping.seq <- readLines("/data/cope/Nonsense_error_rates/Data/overlapping_sequences.txt")
+
+rfp <- rfp %>% 
+  filter(!GeneID %in% overlapping.seq)
+phi <- phi %>% 
+  filter(!GeneID %in% overlapping.seq)
+
+rfp.filt <- rfp %>%
+  group_by(GeneID) %>%
+  filter(Position[which.max(Position)] >= 225)
+
+phi.filt <- phi %>%
+  filter(GeneID %in% unique(rfp.filt$GeneID))
+
+
+write_csv(rfp.filt,"../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-12-28_weinberg_etal_2016_all_frames_0_ramp.csv")
+
+write_csv(phi.filt,"../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-12-28_weinberg_etal_2016_all_frames_phi.csv")
+
+
+rfp.filt.ramp <- rfp.filt %>%
+  mutate(Mixture = ifelse(Position > 200,1,-1))
+
+write_csv(rfp.filt.ramp,"../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-12-28_weinberg_etal_2016_all_frames_200_ramp.csv")
+
+rfp.filt.ignore.post <- rfp.filt %>%
+  mutate(Mixture = ifelse(Position <= 200,1,-1))
+
+write_csv(rfp.filt.ignore.post,"../Data/PANSE_Formatted/Scerevisiae/Weinberg_etal_2016/All_frames/Full_genome/2023-12-28_weinberg_etal_2016_all_frames_ignore_post_200.csv")
+
+
+
+```
