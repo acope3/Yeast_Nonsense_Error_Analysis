@@ -50,3 +50,6 @@ rsconnect/
 
 # Large Parameter Object files
 **/parameter.Rda
+
+
+**/.DS_Store
