@@ -50,3 +50,5 @@ rsconnect/
 
 # Large Parameter Object files
 **/parameter.Rda
+*.bam
+*.bam.bai
