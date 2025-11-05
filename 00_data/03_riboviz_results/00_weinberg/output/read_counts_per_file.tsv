@@ -1,0 +1,12 @@
+# Created by: riboviz
+# Date: 2025-10-03 22:41:27.809257
+# Command-line tool: /panfs/accrepfs.vampire/home/copea1/riboviz/riboviz/tools/count_reads.py
+# File: /panfs/accrepfs.vampire/home/copea1/riboviz/riboviz/count_reads.py
+# Version: commit c69a18f5feba3740b5dc9c6bee1fcb94cf3a0b6c date 2025-09-09 17:52:57-05:00
+SampleName	Program	File	NumReads	Description
+Cerevisiae_RPF	input	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Weinberg_etal_2016_Cell_Reports/input/SRR1049521.fastq.gz	102187657	input
+Cerevisiae_RPF	cutadapt	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Weinberg_etal_2016_Cell_Reports/tmp/Cerevisiae_RPF/trim.fq	102181750	Reads after removal of sequencing library adapters
+Cerevisiae_RPF	hisat2	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Weinberg_etal_2016_Cell_Reports/tmp/Cerevisiae_RPF/rRNA_map.sam	21302471	Reads aligned to rRNA and other contaminating reads in rRNA index files
+Cerevisiae_RPF	hisat2	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Weinberg_etal_2016_Cell_Reports/tmp/Cerevisiae_RPF/orf_map.sam	85922162	Reads aligned to ORFs index files
+Cerevisiae_RPF	riboviz.tools.trim_5p_mismatch	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Weinberg_etal_2016_Cell_Reports/tmp/Cerevisiae_RPF/orf_map_clean.sam	85921328	Reads after trimming of 5' mismatches and removal of those with more than 2 mismatches
+Cerevisiae_RPF	umi_tools dedup	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Weinberg_etal_2016_Cell_Reports/output/Cerevisiae_RPF/Cerevisiae_RPF.bam	53407225	Deduplicated reads

@@ -1,0 +1,20 @@
+# Created by: riboviz
+# Date: 2025-09-09 21:59:38.897029
+# Command-line tool: /panfs/accrepfs.vampire/home/copea1/riboviz/riboviz/tools/count_reads.py
+# File: /panfs/accrepfs.vampire/home/copea1/riboviz/riboviz/count_reads.py
+# Version: commit c69a18f5feba3740b5dc9c6bee1fcb94cf3a0b6c date 2025-09-09 17:52:57-05:00
+SampleName	Program	File	NumReads	Description
+CHX_1	input	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Wu_etal_2019_Mol_Cell/input/SRR7241903.fastq	54157010	input
+eRF1Depletion_1	input	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Wu_etal_2019_Mol_Cell/input/SRR7241908.fastq	46687648	input
+CHX_1	cutadapt	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Wu_etal_2019_Mol_Cell/tmp/CHX_1/trim.fq	54145527	Reads after removal of sequencing library adapters
+CHX_1	hisat2	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Wu_etal_2019_Mol_Cell/tmp/CHX_1/nonrRNA.fq	40996089	Reads that did not align to rRNA or other contaminating reads in rRNA index files
+CHX_1	hisat2	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Wu_etal_2019_Mol_Cell/tmp/CHX_1/rRNA_map.sam	13149438	Reads aligned to rRNA and other contaminating reads in rRNA index files
+CHX_1	hisat2	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Wu_etal_2019_Mol_Cell/tmp/CHX_1/unaligned.fq	2792741	Unaligned reads removed by alignment of remaining reads to ORFs index files
+CHX_1	hisat2	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Wu_etal_2019_Mol_Cell/tmp/CHX_1/orf_map.sam	45364053	Reads aligned to ORFs index files
+CHX_1	riboviz.tools.trim_5p_mismatch	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Wu_etal_2019_Mol_Cell/tmp/CHX_1/orf_map_clean.sam	45364053	Reads after trimming of 5' mismatches and removal of those with more than 2 mismatches
+eRF1Depletion_1	cutadapt	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Wu_etal_2019_Mol_Cell/tmp/eRF1Depletion_1/trim.fq	46653643	Reads after removal of sequencing library adapters
+eRF1Depletion_1	hisat2	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Wu_etal_2019_Mol_Cell/tmp/eRF1Depletion_1/nonrRNA.fq	38071118	Reads that did not align to rRNA or other contaminating reads in rRNA index files
+eRF1Depletion_1	hisat2	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Wu_etal_2019_Mol_Cell/tmp/eRF1Depletion_1/rRNA_map.sam	8582525	Reads aligned to rRNA and other contaminating reads in rRNA index files
+eRF1Depletion_1	hisat2	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Wu_etal_2019_Mol_Cell/tmp/eRF1Depletion_1/unaligned.fq	4827091	Unaligned reads removed by alignment of remaining reads to ORFs index files
+eRF1Depletion_1	hisat2	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Wu_etal_2019_Mol_Cell/tmp/eRF1Depletion_1/orf_map.sam	39356135	Reads aligned to ORFs index files
+eRF1Depletion_1	riboviz.tools.trim_5p_mismatch	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Wu_etal_2019_Mol_Cell/tmp/eRF1Depletion_1/orf_map_clean.sam	39356135	Reads after trimming of 5' mismatches and removal of those with more than 2 mismatches

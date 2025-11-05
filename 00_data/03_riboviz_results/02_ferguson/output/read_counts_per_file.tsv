@@ -1,0 +1,14 @@
+# Created by: riboviz
+# Date: 2025-10-03 21:18:13.568127
+# Command-line tool: /panfs/accrepfs.vampire/home/copea1/riboviz/riboviz/tools/count_reads.py
+# File: /panfs/accrepfs.vampire/home/copea1/riboviz/riboviz/count_reads.py
+# Version: commit c69a18f5feba3740b5dc9c6bee1fcb94cf3a0b6c date 2025-09-09 17:52:57-05:00
+SampleName	Program	File	NumReads	Description
+OTTR_P1_1	input	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Ferguson_etal_2023_NatMethods/input/SRR23242246.fastq	30151934	input
+OTTR_P1_1	cutadapt	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Ferguson_etal_2023_NatMethods/tmp/OTTR_P1_1/trim.fq	30120300	Reads after removal of sequencing library adapters
+OTTR_P1_1	hisat2	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Ferguson_etal_2023_NatMethods/tmp/OTTR_P1_1/nonrRNA.fq	14748469	Reads that did not align to rRNA or other contaminating reads in rRNA index files
+OTTR_P1_1	hisat2	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Ferguson_etal_2023_NatMethods/tmp/OTTR_P1_1/rRNA_map.sam	15299575	Reads aligned to rRNA and other contaminating reads in rRNA index files
+OTTR_P1_1	hisat2	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Ferguson_etal_2023_NatMethods/tmp/OTTR_P1_1/unaligned.fq	1743850	Unaligned reads removed by alignment of remaining reads to ORFs index files
+OTTR_P1_1	hisat2	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Ferguson_etal_2023_NatMethods/tmp/OTTR_P1_1/orf_map.sam	14876338	Reads aligned to ORFs index files
+OTTR_P1_1	riboviz.tools.trim_5p_mismatch	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Ferguson_etal_2023_NatMethods/tmp/OTTR_P1_1/orf_map_clean.sam	14876335	Reads after trimming of 5' mismatches and removal of those with more than 2 mismatches
+OTTR_P1_1	umi_tools dedup	/data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Ferguson_etal_2023_NatMethods/output/OTTR_P1_1/OTTR_P1_1.bam	8323055	Deduplicated reads

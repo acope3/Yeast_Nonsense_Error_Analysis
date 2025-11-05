@@ -1,0 +1,6 @@
+dir_in: /data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Weinberg_etal_2016_Cell_Reports/input
+dir_out: /data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Weinberg_etal_2016_Cell_Reports/output
+dataset: W-Sc_2016
+fq_files: {Cerevisiae_RPF: SRR1049521.fastq.gz}
+sample_sheet: null
+
