@@ -27,6 +27,7 @@ parser$add_argument("--fix_lambda",help="Use this flag to fix lambda^prime at st
 parser$add_argument("--fix_sphi",help="Use this flag to fix s_phi at starting value.",action="store_true")
 parser$add_argument("--init_z",type="double",default=NULL)
 parser$add_argument("--share_nse",action="store_true")
+parser$add_argument("--ignore_nse",help="Use this flag to run a simplified version of PANSE that ignores nonsense errors, called tha PA model",action="store_true")
 parser$add_argument("--prior_type",type="character",default="Natural_Uniform")
 parser$add_argument("--nserate_uniform_lower_limit",type="double",default=1e-100)
 parser$add_argument("--nserate_uniform_upper_limit",type="double",default=1e-1)
@@ -60,6 +61,7 @@ mixture.definition <- args$mixture_definition
 est.phi <- args$est_phi
 est.csp <- args$est_csp
 est.hyp <- args$est_hyp
+ignore_nse <- args$ignore_nse
 max_num_runs <- args$max_num_runs
 fix_nse <- args$fix_nse
 fix_alpha <- args$fix_alpha
@@ -98,7 +100,7 @@ createParameterOutput <- function(parameter,numMixtures,samples,mixture.labels,s
   }
 }
 
-createTracePlots <- function(trace, model,genome,numMixtures,samples,mixture.labels,samples.percent.keep=1)
+createTracePlots <- function(trace, model.type, numMixtures)
 {
   for (i in 1:numMixtures)
   {
@@ -106,10 +108,13 @@ createTracePlots <- function(trace, model,genome,numMixtures,samples,mixture.lab
     plot(trace, what="Lambda",mixture =i)
     plot(trace, what = "MeanWaitingTime", mixture = i)
     plot(trace, what = "VarWaitingTime", mixture = i)
-    plot(trace,what="NSERate", mixture = i)
-    plot(trace,what="NSERate",log.10.scale=T, mixture = i)
-    plot(trace,what="NSEProb", mixture = i)
-    plot(trace,what="NSEProb",log.10.scale=T, mixture = i)
+    if (model.type == "PANSE")
+    {
+      plot(trace, what="NSERate", mixture = i)
+      plot(trace, what="NSERate",log.10.scale=T, mixture = i)
+      plot(trace, what="NSEProb", mixture = i)
+      plot(trace, what="NSEProb",log.10.scale=T, mixture = i)
+    }
     
   }
   plot(trace,what="AcceptanceRatio")
@@ -214,6 +219,15 @@ if (!is.null(s.phi))
 }
 
 
+model.type <- "PANSE"
+if (ignore_nse)
+{
+  model.type <- "PA"
+  share_nse <- FALSE
+  nserate <- NULL
+  fix_nse <- TRUE
+} 
+
 rfp <- read.table(fasta.files,sep=",",header=T,stringsAsFactors = F)
 numElongationMixtures <- length(unique(rfp$Mixture^2)) ## will handle negatives
 mixture.labels <- paste(seq(numElongationMixtures),dataset,sep="_")
@@ -226,7 +240,8 @@ if (is.null(init_z))
   } else {
     init_z <- 100000
   }
-}
+} 
+
 meta.title <- unlist(strsplit(directory,"/"))
 meta.title <- meta.title[length(meta.title)]
 
@@ -235,12 +250,23 @@ done <- FALSE
 run_number <- 1
 while(run_number <= max_num_runs)
 {
-  
+  print(model.type) 
   if (run_number == 1)
   {
     if (is.null(restart.file))
     {
-      parameter <- initializeParameterObject(genome,model="PANSE",sphi_init,numMixtures, geneAssignment, split.serine = FALSE, mixture.definition = mixDef, initial.expression.values = init_phi,init.partition.function=init_z, init.sepsilon = s.epsilon, numElongationMixtures = numElongationMixtures)
+      parameter <- initializeParameterObject(genome,
+                                             model="PANSE",
+                                             sphi_init,
+                                             numMixtures, 
+                                             geneAssignment, 
+                                             split.serine = FALSE, 
+                                             mixture.definition = mixDef, 
+                                             initial.expression.values = init_phi,
+                                             init.partition.function=init_z, 
+                                             init.sepsilon = s.epsilon, 
+                                             numElongationMixtures = numElongationMixtures,
+                                             include.nonsense.errors=!ignore_nse)
         
       if (!is.null(alpha))
       {
@@ -271,13 +297,15 @@ while(run_number <= max_num_runs)
         run_number <- as.numeric(stringr::str_extract(pattern="[0-9]+",string=previous)) + 1
       }
       parameter<-initializeParameterObject(init.with.restart.file = restart.file,model="PANSE")
-      steps.to.adapt <- (samples*thinning)*percent.to.keep
-      dir_name <- paste0(directory,"/restart_",run_number)
       
       if (run_number == max_num_runs)
       {
         steps.to.adapt <- 0
         dir_name <- paste0(directory,"/final_restart")
+      } else 
+      {
+        steps.to.adapt <- (samples*thinning)*percent.to.keep
+        dir_name <- paste0(directory,"/restart_",run_number)
       }
     }
     
@@ -316,6 +344,10 @@ while(run_number <= max_num_runs)
   {
     parameter$shareNSERate()
   }
+  if (ignore_nse)
+  {
+    parameter$ignoreNSE()
+  }
   
   print(paste0("Creating",dir_name))
   dir.create(dir_name)
@@ -331,12 +363,14 @@ while(run_number <= max_num_runs)
   
   
   model <- initializeModelObject(parameter, "PANSE", with.phi,fix.observation.noise=T)
-  model$setNSERatePriorDistribution(prior.type,
-                                    nserate.uniform.lower.limit,
-                                    nserate.uniform.upper.limit,
-                                    nserate.exponential.mean)
-  
-  setRestartSettings(mcmc, paste(dir_name,"Restart_files/rstartFile.rst",sep="/"), adaptiveWidth, F)
+  if (!ignore_nse)
+  {
+    model$setNSERatePriorDistribution(prior.type,
+                                      nserate.uniform.lower.limit,
+                                      nserate.uniform.upper.limit,
+                                      nserate.exponential.mean)
+  }
+  setRestartSettings(mcmc, paste(dir_name,"Restart_files/rstartFile.rst",sep="/"), adaptiveWidth, T)
   sys.runtime <- system.time(
     runMCMC(mcmc, genome, model, num_threads,div=div)
   )
@@ -356,9 +390,12 @@ while(run_number <= max_num_runs)
   if (est.csp)
   {
     pdf(paste(dir_name,"Graphs/CSP_traces.pdf",sep="/"), width = 11, height = 12,title=paste0("CSP_traces_",meta.title,"_restart_",run_number,".pdf"))
-    createTracePlots(trace=trace,model=model,genome=genome,numMixtures=numElongationMixtures,samples=samples,samples.percent.keep = 1,mixture.labels = mixture.labels)
-    nse.accept.trace <- trace$getNseRateSpecificAcceptanceRateTrace()
-    nse.done.adapt <- createAcceptanceRateTrace(nse.accept.trace,"NSE Rate",percent.to.keep) 
+    createTracePlots(trace=trace,model.type=model.type,numMixtures=numElongationMixtures)
+    if (!ignore_nse)
+    {
+      nse.accept.trace <- trace$getNseRateSpecificAcceptanceRateTrace()
+      nse.done.adapt <- createAcceptanceRateTrace(nse.accept.trace,"NSE Rate",percent.to.keep) 
+    }
     dev.off()
   }
   #plots different aspects of trace
@@ -375,7 +412,7 @@ while(run_number <= max_num_runs)
       plot(trace,what="Sphi")
       plot(trace,what="Mphi")
     }
-    if (!fix_z)
+    if (!fix_z && !ignore_nse)
     {
       plot(trace,what="PartitionFunction")
     }
@@ -394,7 +431,7 @@ while(run_number <= max_num_runs)
     {
       acfCSP(parameter,csp="LambdaPrime",numMixtures = numMixtures,samples=samples*percent.to.keep)
     }
-    if (!fix_nse)
+    if (!fix_nse && !ignore_nse)
     {
       acfCSP(parameter,csp="NSERate",numMixtures = numMixtures,samples=samples*percent.to.keep)
     }
@@ -417,12 +454,14 @@ while(run_number <= max_num_runs)
       z.scores <- param.diag$z[which(abs(param.diag$z) > 1.96)]
       write(param.diag$z,paste0(dir_name,"/Parameter_est/convergence_lambda_",i,".txt"),ncolumns = 1)
     }
-    
-    for (i in 1:numMixtures)
+    if (!ignore_nse)
     {
-      param.diag<-convergence.test(trace,samples=samples*percent.to.keep,thin = thinning,what="NSERate",mixture=i,frac1=0.1)
-      z.scores <- param.diag$z[which(abs(param.diag$z) > 1.96)]
-      write(param.diag$z,paste0(dir_name,"/Parameter_est/convergence_nserate_",i,".txt"),ncolumns = 1)
+      for (i in 1:numMixtures)
+      {
+        param.diag<-convergence.test(trace,samples=samples*percent.to.keep,thin = thinning,what="NSERate",mixture=i,frac1=0.1)
+        z.scores <- param.diag$z[which(abs(param.diag$z) > 1.96)]
+        write(param.diag$z,paste0(dir_name,"/Parameter_est/convergence_nserate_",i,".txt"),ncolumns = 1)
+      }
     }
   }
   rm(parameter)
