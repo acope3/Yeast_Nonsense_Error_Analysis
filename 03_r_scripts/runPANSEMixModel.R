@@ -28,7 +28,7 @@ parser$add_argument("--fix_sphi",help="Use this flag to fix s_phi at starting va
 parser$add_argument("--init_z",type="double",default=NULL)
 parser$add_argument("--share_nse",action="store_true")
 parser$add_argument("--ignore_nse",help="Use this flag to run a simplified version of PANSE that ignores nonsense errors, called tha PA model",action="store_true")
-parser$add_argument("--prior_type",type="character",default="Natural_Uniform")
+parser$add_argument("--prior_type",type="character",default="Natural-Uniform")
 parser$add_argument("--nserate_uniform_lower_limit",type="double",default=1e-100)
 parser$add_argument("--nserate_uniform_upper_limit",type="double",default=1e-1)
 parser$add_argument("--nserate_exponential_mean",type="double",default=25000)
@@ -84,6 +84,8 @@ phi_column <- args$phi_column
 dev <- args$development
 
 print(args)
+
+prior.type <- gsub("_","-",prior.type)
 
 if (!is.null(dev))
 {
@@ -370,7 +372,7 @@ while(run_number <= max_num_runs)
                                       nserate.uniform.upper.limit,
                                       nserate.exponential.mean)
   }
-  setRestartSettings(mcmc, paste(dir_name,"Restart_files/rstartFile.rst",sep="/"), adaptiveWidth, T)
+  setRestartSettings(mcmc, paste(dir_name,"Restart_files/rstartFile.rst",sep="/"), adaptiveWidth, F)
   sys.runtime <- system.time(
     runMCMC(mcmc, genome, model, num_threads,div=div)
   )
