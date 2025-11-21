@@ -600,3 +600,31 @@ filterDataset(input = input,
 
 
 ```
+
+
+
+```{r warning=FALSE}
+input <- "00_unfiltered_genes/ferguson_etal_2023_ottr_p1_rep1_plus_rep2_all_genes.csv"
+output_dir <- "./"
+output_rfp <- "2025-11-22_ferguson_etal_2023_all_frames_100_ramp.csv"
+phi <- "00_unfiltered_genes/ferguson_etal_2023_ottr_p1_rep1_plus_rep2_all_genes_phi.csv"
+output_phi <- "2025-11-22_ferguson_etal_2023_all_frames_100_ramp_phi.csv"
+min_length_gene <- 150
+min_read_counts <- 1
+remove_outliers <- TRUE
+exclude_these_genes <- "../proteins_to_exclude_paralogs_mito_scer.txt"
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts = min_read_counts,
+                      remove_outliers = remove_outliers,
+                      ramp.region.cutoff = 100,
+                      exclude_these_genes = exclude_these_genes,
+                      pause_site_z_score_cutoff=3.92)
+
+
+```
