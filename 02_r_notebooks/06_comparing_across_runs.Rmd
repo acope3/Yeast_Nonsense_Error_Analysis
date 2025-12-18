@@ -1,0 +1,71 @@
+---
+title: "Comparing results across experiments"
+author: "Alexander Cope"
+date: "2025-10-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+
+
+plotting.target <- switch(1,
+                          "paper",
+                          "talk")
+source("ggplot2.settings.R")
+suppressMessages(source("helperFunctions.R"))
+```
+
+# Weinberg: standard nucleotide offset vs. riboWaltz recommendation
+```{r}
+wein.std.offset <- getParameterDataFrames("../01_results/00_panse_fits/2023-07-20_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_200_ramp_run_2/final_restart/")
+wein.updated.offset <- getParameterDataFrames("../01_results/00_panse_fits/2025-10-08_weinberg_etal_replicated_different_offset_genes_shorter_than_225_codons_200_ramp/final_restart/")
+
+compareEstimates(wein.std.offset,wein.updated.offset ,variable="Alpha",xlab="Weinberg Standard Alpha",ylab="Weingberg riboWaltz Alpha",title="",color=NA)
+compareEstimates(wein.std.offset,wein.updated.offset ,variable="Lambda",xlab="Weinberg Standard Lambda",ylab="Weingberg riboWaltz Lambda",title="",color=NA)
+compareEstimates(wein.std.offset,wein.updated.offset ,variable="Wait.Time",xlab="Weinberg Standard Waiting Time",ylab="Weingberg riboWaltz Waiting Time",title="",color=NA)
+compareEstimates(wein.std.offset,wein.updated.offset ,variable="Log.NSERate",xlab="Weinberg Standard log(NSE Rate)",ylab="Weingberg riboWaltz log(NSE Rate)",title="",color = "Stop.Neighbor")
+
+```
+# Weinberg vs. Wu (28-30nt reads, 15nt offset)
+
+```{r}
+wein <- wein.std.offset
+wu <- getParameterDataFrames("../01_results/00_panse_fits/2025-09-22_Wu_etal_CHX1_filter_genes_shorter_than_225_codons_200_ramp/final_restart/")
+
+compareEstimates(wein,wu,variable="Alpha",xlab="Weinberg Alpha",ylab="Wu Alpha",title="",color=NA)
+compareEstimates(wein,wu,variable="Lambda",xlab="Weinberg Lambda",ylab="Wu Lambda",title="",color=NA)
+compareEstimates(wein,wu,variable="Wait.Time",xlab="Weinberg Waiting Time",ylab="Wu Waiting Time",title="",color=NA)
+compareEstimates(wein,wu,variable="Log.NSERate",xlab="Weinberg log(NSE Rate)",ylab="Wu log(NSE Rate)",title="",color = "Stop.Neighbor")
+
+
+```
+
+# Weinberg vs. Wu (28-30nt reads, 15nt offset)
+
+```{r}
+wein <- wein.std.offset
+wu <- getParameterDataFrames("../01_results/00_panse_fits/2025-11-05_Wu_etal_2019_28nt_21nt_rfp_all_frames_filter_genes_shorter_than_225_codons_200_ramp/final_restart/")
+
+compareEstimates(wein,wu,variable="Alpha",xlab="Weinberg Alpha",ylab="Wu Alpha",title="",color=NA)
+compareEstimates(wein,wu,variable="Lambda",xlab="Weinberg Lambda",ylab="Wu Lambda",title="",color=NA)
+compareEstimates(wein,wu,variable="Wait.Time",xlab="Weinberg Waiting Time",ylab="Wu Waiting Time",title="",color=NA)
+compareEstimates(wein,wu,variable="Log.NSERate",xlab="Weinberg log(NSE Rate)",ylab="Wu log(NSE Rate)",title="",color = "Stop.Neighbor")
+
+
+```
+# Weinberg vs. Ferguson (28-30nt reads, 15nt offset)
+
+```{r}
+wein.data <- read_csv("../00_data/00_panse_input/2023-06-12_weinberg_etal_2016_all_frames_200_ramp.csv")
+wein <- wein.std.offset
+ferg <- getParameterDataFrames("../01_results/00_panse_fits/2025-11-21_Ferguson_etal_2023_rep1_plus_rep2_all_frames_filter_genes_shorter_than_150_codons_100_ramp/final_restart/")
+
+compareEstimates(wein,ferg,variable="Alpha",xlab="Weinberg Alpha",ylab="Ferguson Alpha",title="",color=NA)
+compareEstimates(wein,ferg,variable="Lambda",xlab="Weinberg Lambda",ylab="Ferguson  Lambda",title="",color=NA)
+compareEstimates(wein,ferg,variable="Wait.Time",xlab="Weinberg Waiting Time",ylab="Ferguson  Waiting Time",title="",color=NA)
+compareEstimates(wein,ferg,variable="Log.NSERate",xlab="Weinberg log(NSE Rate)",ylab="Ferguson log(NSE Rate)",title="",color = "Stop.Neighbor")
+
+
+```
