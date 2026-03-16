@@ -57,6 +57,6 @@ rsconnect/
 *.bedgraph
 
 # AnaCoDa restart files
-**/rstartFile.rst_[0-9]*
+*/rstartFile.rst_[0-9]*
 
-**/.DS_Store
+*/.DS_Store
