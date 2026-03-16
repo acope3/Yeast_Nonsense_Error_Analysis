@@ -1,6 +1,6 @@
-dir_in: /data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Ferguson_etal_2023_NatMethods/input
-dir_out: /data/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Ferguson_etal_2023_NatMethods/output
+dir_in: /nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Ferguson_etal_2023_NatMethods/input
+dir_out: /nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Ferguson_etal_2023_NatMethods/output
 dataset: F-Sc_2023
-fq_files: {OTTR_P1_1: SRR23242246.fastq}
+fq_files: {OTTR_P1_2: SRR23242245.fastq}
 sample_sheet: null
 
