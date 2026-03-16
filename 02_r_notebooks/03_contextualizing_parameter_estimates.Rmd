@@ -27,10 +27,23 @@ suppressMessages(source("helperFunctions.R"))
 ```{r}
 main.yeast.data.path <- "../00_data/00_panse_input/2023-06-12_weinberg_etal_2016_all_frames_200_ramp.csv"
 full.yeast.data.path <- "../00_data/00_panse_input/2023-01-05_weinberg_etal_2016_all_frames_0_ramp.csv"
-main.yeast.result.path <- "../01_results/00_panse_fits/2023-07-20_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_200_ramp_run_2/final_restart/"
+main.yeast.result.path <- "../01_results/00_panse_fits/2026-01-07_Weinberg_etal_2016_all_frames_filter_genes_shorter_than_225_codons_200_ramp_updated_posterior_variable_nse/final_restart/"
+
+
+
+# main.yeast.data.path <- "../00_data/00_panse_input/2025-11-21_ferguson_etal_2023_all_frames_100_ramp.csv"
+# full.yeast.data.path <- "../00_data/00_panse_input/00_unfiltered_genes/ferguson_etal_2023_ottr_p1_rep1_plus_rep2_all_genes.csv"
+# main.yeast.result.path <- "../01_results/00_panse_fits/2025-11-21_Ferguson_etal_2023_rep1_plus_rep2_all_frames_filter_genes_shorter_than_150_codons_100_ramp/final_restart/"
 
 main.yeast.data <- read_csv(main.yeast.data.path)
 full.yeast.data <- read_csv(full.yeast.data.path)
+if ("gene" %in% colnames(full.yeast.data))
+{
+  full.yeast.data <- full.yeast.data %>%
+    dplyr::rename(GeneID=gene) %>%
+    filter(!str_detect(GeneID,"Q0[0-9]{3}"))
+}
+  
 
 main.yeast.result <- getParameterDataFrames(main.yeast.result.path)
 
@@ -76,9 +89,9 @@ $\phi$ and $\omega$ are expected to correlate both with empirical measures of th
 
 ```{r}
 
-mrna.vs.panse<- ggplot(sigma,aes(x=RPKM,y=Phi)) + #,label=GeneID)) +
+mrna.vs.panse<- ggplot(sigma,aes(x=RPKM,y=Phi)) +
   geom_point(show.legend = F) +
-  stat_cor(method="spearman",label.sep="\n") +
+  stat_cor(method="spearman",label.sep="\n",cor.coef.name = "rho",label.y=1.25) +
   xlab("mRNA Abundances (RPKM)") +
   ylab(expression("Total Initation Rates"~kappa[g]^"'"~"(PANSE)")) +
   scale_x_log10() +
@@ -86,7 +99,8 @@ mrna.vs.panse<- ggplot(sigma,aes(x=RPKM,y=Phi)) + #,label=GeneID)) +
   #ggtitle("RNA-seq mRNA abundances vs.\n PANSE Total Initiation Rates") +
   theme(ggside.axis.text = element_blank(),
         ggside.axis.line = element_blank(),
-        ggside.axis.ticks = element_blank()) +
+        ggside.axis.ticks = element_blank(),
+        axis.title=element_text(size=10)) +
   geom_xsidehistogram(fill="white",color="black") +
   geom_ysidehistogram(fill="white",color="black")
 mrna.vs.panse
@@ -98,7 +112,7 @@ ggsave3(file = file.path(fig.dir, "mRNA-vs-PANSE.pdf"),
 
 mrna.vs.init<- ggplot(sigma,aes(x=S,y=Phi,label=GeneID)) +
   geom_point(show.legend = F) +
-  stat_cor(method="spearman",label.sep="\n") +
+  stat_cor(method="spearman",label.sep="\n",cor.coef.name = "rho") +
   xlab(expression(iota[g]~"Initiation Rates (Whole-cell Model)")) +
   ylab(expression(kappa[g]^"'"~"Total Initation Rates (PANSE)")) +
   scale_x_log10() +
@@ -118,10 +132,11 @@ panse.vs.roc.initiation <- ggplot(sigma,aes(x=Mean,y=Phi)) +
   geom_point(show.legend = F) +
   scale_x_log10() +
   scale_y_log10() +
-  stat_cor(method="spearman",label.sep="\n") +
+  stat_cor(method="spearman",label.sep="\n",cor.coef.name = "rho",label.y=1.25) +
   theme(ggside.axis.text = element_blank(),
         ggside.axis.line = element_blank(),
-        ggside.axis.ticks = element_blank()) +
+        ggside.axis.ticks = element_blank(),
+        axis.title=element_text(size=10)) +
   geom_xsidehistogram(fill="white",color="black") +
   geom_ysidehistogram(fill="white",color="black") +
   #ggtitle("ROC-SEMPPR Codon-based Production Rates vs.\nPANSE Total Initiation Rates") +
@@ -146,9 +161,9 @@ ribo.wt.w.panse <- ribo.wt %>%
 panse.wait.times.vs.elong.rates <- ggplot(ribo.wt.w.panse,aes(x=mean_elongation_rate,y=Mean,label=Codon)) +
   geom_point() +
   geom_errorbar(aes(ymin=`2.5%.x`,ymax=`97.5%.x`)) +
-  stat_cor(method="spearman",label.sep="\n",label.x.npc = "center") +
+  stat_cor(method="spearman",label.sep="\n",label.x.npc = "center",cor.coef.name = "rho") +
   xlab("Elongation Rates (codons/s)\nDao Duc & Song (2018) PLoS Genetics") +
-  ylab(expression("Pausing Times"~w[c]~"(PANSE)"))  +
+  ylab(expression("Pausing Times"~w[c]~"(PANSE)")) +
   theme(plot.margin = unit(c(0,30,0,0), "pt"))
 panse.wait.times.vs.elong.rates
 
@@ -159,7 +174,7 @@ panse.vs.duc.song <- ggplot(ribo.wt.w.panse,aes(x=mean_elongation_rate,y=Rate,la
   geom_point() +
   #geom_abline(slope=1,intercept = 0,linetype="dashed") +
   geom_errorbar(aes(ymax=1/`2.5%.x`,ymin=1/`97.5%.x`)) +
-  stat_cor(method="spearman",label.sep="\n",label.x.npc = "center") +
+  stat_cor(method="spearman",label.sep="\n",label.x.npc = "center",cor.coef.name = "rho") +
   xlab("Elongation Rates (codons/s)\nDao Duc & Song (2018) PLoS Genetics") +
   ylab(expression("Relative Elongation Rates"~w[c]~"(PANSE)"))  +
   theme(plot.margin = unit(c(0,30,0,0), "pt"))
@@ -170,13 +185,14 @@ ggsave3(file = file.path(fig.dir, "PANSE_vs_Duc-Song_elongation-rates.pdf"),
        plot = panse.vs.duc.song)
 
 
-panse.vs.trna.wt <- ggplot(ribo.wt.w.panse,aes(x=1/`(tRNA_GCN*Wobble)`,y=Mean)) +
+panse.vs.trna.wt <- ggplot(ribo.wt.w.panse,aes(x=`(tRNA_GCN*Wobble)`,y=1/Mean)) +
   geom_point() +
-  stat_cor(method="spearman",label.sep="\n") +
-  xlab("Pausing Times"~w[c]~"1/(tGCN * wobble)") +
-  ylab(expression("Pausing Times"~w[c]~"(PANSE)")) +
+  stat_cor(method="spearman",label.sep="\n",cor.coef.name = "rho",label.x.npc = "center",label.y.npc = "bottom") +
+  xlab("Elongation Rates"~c[c]~"(tGCN * wobble)") +
+  ylab(expression("Elongation Rates"~c[c]~"(PANSE)")) +
   #ggtitle("Pausing Times vs.\n tGCN-based Pausing Times") +
-  theme(plot.margin = unit(c(0,30,0,0), "pt"))
+  #theme(plot.margin = unit(c(0,30,0,0), "pt"))
+  theme(axis.title = element_text(size=10))
 panse.vs.trna.wt
 
 ggsave3(file = file.path(fig.dir, "PANSE_vs_tRNA_waiting-times.pdf"),
@@ -200,12 +216,13 @@ deta.w.panse <- deta.w.panse %>%
 
 panse.vs.deta <- ggplot(deta.w.panse,aes(x=DEta,y=Rel.WT)) +
   geom_point() +
-  stat_cor(method="spearman",label.sep="\n") +
+  stat_cor(method="spearman",label.sep="\n",cor.coef.name = "rho") +
   xlab(expression("Selection Against Pausing"~Delta*eta~"(ROC-SEMPPR)")) +
   ylab(expression("Relative Pausing Times"~Delta*w[c]~"(PANSE)")) +
   geom_errorbarh(aes(xmin=`2.5%_ROC`, xmax=`97.5%_ROC`)) +
-  geom_errorbar(aes(ymin=`Rel_2.5%_PANSE`, ymax=`Rel_97.5%_PANSE`))  +
-  theme(plot.margin = unit(c(30,30,0,0), "pt"))
+  geom_errorbar(aes(ymin=`Rel_2.5%_PANSE`, ymax=`Rel_97.5%_PANSE`)) +
+  theme(axis.title = element_text(size=10))
+  #theme(plot.margin = unit(c(30,30,0,0), "pt"))
   #ggtitle(expression("Differences in PANSE's Pausing Times vs.\nROC SEMPPR's CUB Based Selection Against Pausing"~Delta*eta)) +
 panse.vs.deta
 
@@ -220,7 +237,7 @@ We observe that estimates of initiation rates $\phi$ and codon waiting times $\o
 
 fig.1 <-(mrna.vs.panse | panse.vs.trna.wt) / (panse.vs.roc.initiation | panse.vs.deta) + plot_annotation(tag_levels = 'A')
 fig.1
-ggsave3(file.path(fig.dir, "Figure_1.pdf"),plot=fig.1,width=11,height = 11)
+ggsave3(file.path(fig.dir, "Figure_1.pdf"),plot=fig.1,width=8.7,height = 8.7)
 
 ggsave3(file.path(fig.dir, "panse_vs_daoduc_2018.pdf"),plot=panse.wait.times.vs.elong.rates,width=5,height=5)
 ```
@@ -252,7 +269,7 @@ ggsave3(file=file.path(fig.dir, "genome_sigma-histogram.pdf"),plot = hist.sigma)
 
 length.vs.sigma <- ggplot(sigma,aes(x=Length,y=1-Sigma)) +
   geom_point(aes(color=log10(Mean))) +
-  stat_cor(method="spearman",label.sep = "\n") +
+  stat_cor(method="spearman",label.sep = "\n",cor.coef.name = "rho") +
   xlab("Transcript Length") +
   scale_x_log10() +
   scale_y_log10() +
@@ -271,7 +288,7 @@ ggsave3(file = file.path(fig.dir, "cds-length_vs_sigma.pdf"),
 
 expression.vs.sigma <- ggplot(sigma,aes(x=Mean,y=1-Sigma)) +
   geom_point(aes(color=log10(Length))) +
-  stat_cor(method="spearman",label.sep = "\n") +
+  stat_cor(method="spearman",label.sep = "\n",cor.coef.name = "rho") +
   xlab("Total Initiation Rate"~kappa[g]^"'") +
   scale_x_log10() +
   scale_y_log10() +
@@ -290,7 +307,7 @@ ggsave3(file = file.path(fig.dir, "expression_vs_sigma.pdf"),
 bonnin.vs.sigma <- ggplot(sigma,aes(x=drop_off_resilience,y=Sigma)) +
   geom_point(aes(color=log10(Mean),size=log10(Length))) +
   geom_abline(intercept=0,slope=1,linetype="dashed") +
-  stat_cor(method="spearman",label.sep="\n") +
+  stat_cor(method="spearman",label.sep="\n",cor.coef.name = "rho") +
   xlab("Drop-off Resilience (Bonnin et al. 2017)") +
   ylab(expression("Pr(No NSE) ="~sigma)) +
   labs(color=expression("Log"["10"]*"(Gene Exp."~kappa*")"),size=expression("Log"["10"]*"(Length)")) +
@@ -303,11 +320,14 @@ bonnin.vs.sigma <- ggplot(sigma,aes(x=drop_off_resilience,y=Sigma)) +
 bonnin.vs.sigma
 ggsave3(file = file.path(fig.dir, "bonnin_vs_sigma.pdf"),
        plot = bonnin.vs.sigma)
+```
 
 
-sigma.effects <- (length.vs.sigma | bonnin.vs.sigma) + plot_annotation(tag_levels = "A")
+
+```{r fig.width=12,fig.height=4}
+sigma.effects <- (length.vs.sigma | bonnin.vs.sigma ) + plot_annotation(tag_levels = "A")
 sigma.effects
-ggsave3(file.path(fig.dir, "Figure_4.pdf"),plot=sigma.effects,width=15,height=6)
+ggsave3(file.path(fig.dir, "Figure_4.pdf"),plot=sigma.effects,width=14,height=5)
 
 ```
 
@@ -326,7 +346,7 @@ ppcor::pcor.test(x = sigma.filt$drop_off_resilience,y=sigma.filt$Sigma,z=log10(s
 As a reference point, also get the posterior NSE Rate if we assume this parameter is the same across codons.
 
 ```{r}
-same <- getParameterDataFrames("../01_results/00_panse_fits/2023-07-20_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_200_ramp_uniform_nse/final_restart/")
+same <- getParameterDataFrames("../01_results/00_panse_fits/2026-01-07_Weinberg_etal_2016_all_frames_filter_genes_shorter_than_225_codons_200_ramp_updated_posterior_shared_nse/final_restart/")
 
 
 same.nse <- same$Log.NSERate %>%
@@ -380,25 +400,27 @@ nse.pr.df <- main.yeast.result$Log.NSEPr %>%
 ```
 
 ```{r fig.height=12}
-
 sorted.nse.rate.df <- nse.rate.df %>%
   arrange(AA,Mean) %>%
-  mutate(Codon = factor(Codon,levels = unique(Codon)))
+  mutate(Codon = ifelse(!Codon %in% c("CTT","GGG","CCC","AGG","CTC","CCT","CTG","CGA","CCG","GTG","GCG"),Codon,paste0("**",Codon,"**")),
+         Codon = factor(Codon,levels = unique(Codon))) 
 
 
 nse.rate.by.codon <- ggplot(sorted.nse.rate.df,aes(x=Codon,y=Mean)) +
     geom_point(aes(color=Total.Stop.Neighbor)) +
   ylab(expression("Log"[10]*"(NSE Rate)")) +
   scale_y_continuous(labels = function(x) label_parsed(paste("10^",x))) +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1,size=14),
-        axis.title = element_text(size=18)) +
+  theme(axis.text.x = ggtext::element_markdown(angle = 90, vjust = 0.5, hjust=1,size=8),
+        axis.title = element_text(size=12)) +
   labs(color="# of Stop Codon\nNeighbors") +
   geom_errorbar(aes(x=Codon,ymin=`2.5%`,ymax=`97.5%`,color=as.character(Total.Stop.Neighbor))) +
   geom_hline(yintercept = unlist(same.nse$Mean)) +
   scale_color_viridis_d() +
   geom_hline(yintercept = unlist(same.nse$`2.5%`),linetype="dashed") +
   geom_hline(yintercept = unlist(same.nse$`97.5%`),linetype="dashed") +
-  facet_wrap(~AA,scales="free_x",nrow=5,ncol=5) 
+  facet_wrap(~AA,scales="free_x",nrow=5,ncol=5) +
+  theme(legend.position = c(0.8, 0),
+        legend.justification = c(1, 0))
 nse.rate.by.codon
 
 ggsave3(file = file.path(fig.dir, "NSE-rate_vs_codon.pdf"),
@@ -409,8 +431,11 @@ ggsave3(file = file.path(fig.dir, "NSE-rate_vs_codon.pdf"),
 
 ```{r fig.height=12}
 sorted.nse.pr.df <- nse.pr.df %>%
+  left_join(scer.tgcn) %>%
   arrange(AA,Mean) %>%
-  mutate(Codon = factor(Codon,levels = unique(Codon)))
+  mutate(Codon = ifelse(!Codon %in% c("CTT","GGG","CCC","AGG","CTC","CCT","CTG","CGA","CCG","GTG","GCG"),Codon,paste0("**",Codon,"**")),
+         Codon = factor(Codon,levels = unique(Codon)),
+         By.wobble = ifelse(tRNA == 0,"Wobble Only","Exact Match")) 
 
 nse.pr.by.codon <- ggplot(sorted.nse.pr.df %>%
                            filter(!(AA %in%"Z")),
@@ -418,7 +443,7 @@ nse.pr.by.codon <- ggplot(sorted.nse.pr.df %>%
     geom_point(aes(color=Total.Stop.Neighbor)) +
   ylab("Pr(NSE/elongation)") +
   scale_y_continuous(labels = function(x) label_parsed(paste("10^",x))) +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1,size=8),
+  theme(axis.text.x = ggtext::element_markdown(angle = 90, vjust = 0.5, hjust=1,size=12),
         aspect.ratio = 0.75,
         axis.title = element_text(size=18)) + #main axes labels
   labs(color="# of Stop Codon\nNeighbors") +
@@ -460,7 +485,8 @@ nse.rate.vs.elong.rate <- ggplot(nserate.vs.wt,aes(x=1/Mean_Wait.Time,y=Mean_NSE
   stat_cor(method="spearman",
            label.sep="\n",
            label.y.npc = "bottom",
-           label.x = log10(0.2))
+           label.x = log10(0.2),
+           cor.coef.name = "rho")
 nse.rate.vs.elong.rate
 
 ggsave3(file = file.path(fig.dir, "NSE-rate_vs_elong-rate.pdf"),
@@ -475,13 +501,72 @@ ggsave3(file = file.path(fig.dir, "NSE-rate_vs_elong-rate.pdf"),
 
 ### Linear models to try to explain variation in NSE Rates
 
-Based on the stepwise regressions, it appears that including the weights would impact our model interpretation. 
+```{r}
+err.detect <- read_csv("../00_data/01_correlates/landerer_etal_error_detection.csv")
+
+log.nserate <- main.yeast.result$Log.NSERate %>%
+  left_join(err.detect) %>%
+  mutate(Frameshift.competent = ifelse(!Codon %in% c("CTT","GGG","CCC","AGG","CTC","CCT","CTG","CGA","CCG","GTG","GCG"),"No","Yes")
+)
+
+nserate.vs.mse.prob <- ggplot(log.nserate,aes(x=mean,y=Mean)) +
+  geom_point(aes(color=Frameshift.competent)) +
+  scale_color_manual(values=c("Yes"="red","No"="black")) +
+  geom_errorbar(aes(ymin=`2.5%`,ymax=`97.5%`),alpha=0.5) +
+  geom_errorbarh(aes(xmin=mean-se,xmax=mean+se),alpha=0.5) +
+  labs(color="Frameshift\ncompetent") +
+  ylab(expression("Log"[10]*"(NSE Rate)")) +
+  xlab(expression("Log"[10]*"(Missense Error Probability)")) +
+  theme_cowplot() +
+  geom_abline(intercept = 0,slope=1,linetype="dashed") +
+  scale_x_log10() +
+  stat_cor(method="spearman",label.sep="\n",cor.coef.name = "rho",label.y = -6,label.x = -3.25,size=4) 
+nserate.vs.mse.prob
+log.nserate.fs <- log.nserate %>% split(~Frameshift.competent)
+
+nserate.fs <- ggplot(log.nserate,aes(x=Frameshift.competent,y=Mean)) +
+  geom_boxplot() +
+  ylab(expression("Log"[10]*"(NSE Rate)")) +
+  xlab("Frameshift competent sense codon") +
+  theme_cowplot() +
+  stat_compare_means(method="t.test",vjust = 0.5,label.x = 1.25,size=4)
+nserate.fs
+t.test(log.nserate.fs$No$Mean,log.nserate.fs$Yes$Mean)
+
+
+```
+
 
 ```{r}
+trna.comp <- read_tsv("../01_results/tgcn.tsv")
+scer.tgcn <- read_tsv("../00_data/01_correlates/tgcn.tsv")
+
+wobble <- trna.comp %>% 
+  dplyr::select(Codon,AA,Cognate) %>% 
+  separate(Cognate,sep=",",into=c("tRNA.1","tRNA.2","tRNA.3")) %>% 
+  rowwise() %>% 
+  mutate(across(starts_with("tRNA"),~ifelse(!is.na(.),reverseComplement(.),NA))) %>% 
+  ungroup() %>% 
+  mutate(Total.tRNA=rowSums(!is.na(dplyr::select(.,-Codon,-AA))), 
+         Perfect.Match = ifelse(Codon %in% c(tRNA.1,tRNA.2),T,F),
+         Wobble = case_when(
+           Perfect.Match & Total.tRNA == 1 ~ "No",
+           Perfect.Match & Total.tRNA > 1 ~ "Yes",
+           !Perfect.Match ~ "Yes"
+         ))
+
+err.detect <- read_csv("../00_data/01_correlates/landerer_etal_error_detection.csv") %>%
+  mutate(Log10.Miss.Err.Prob = log10(mean))
+
 nse.df.tmp = list(Rate = nse.rate.df, Pr = nse.pr.df)
 
 nse.df.lst <- lapply(nse.df.tmp, function(x) {
   x %>% 
+  left_join(wobble) %>%
+  left_join(near.cog) %>%  
+  left_join(err.detect) %>%
+  left_join(wt.next) %>%
+  left_join(main.yeast.result$Wait.Time %>% dplyr::select(Codon,Mean) %>% dplyr::rename(Wait.Time=Mean)) %>%
   separate(Codon,into=c("First","Second","Third"),sep="(?<=[A-Z])",remove = F) %>%
   mutate(Stop.Neighbor.First.Yes = ifelse(Stop.Neighbor.First == 0,"No","Yes"),
          Stop.Neighbor.Second.Yes = ifelse(Stop.Neighbor.Second == 0,"No","Yes"),
@@ -489,23 +574,43 @@ nse.df.lst <- lapply(nse.df.tmp, function(x) {
          Stop.Neighbor.First = as.factor(Stop.Neighbor.First),
          Stop.Neighbor.Second = as.factor(Stop.Neighbor.Second),
          Stop.Neighbor.Third = as.factor(Stop.Neighbor.Third),
-         Stop.Neighbor.Yes = ifelse(Stop.Neighbor.First.Yes == "Yes" | Stop.Neighbor.Second.Yes == "Yes" | Stop.Neighbor.Third.Yes == "Yes","Yes","No")
+         Stop.Neighbor.Yes = ifelse(Stop.Neighbor.First.Yes == "Yes" | Stop.Neighbor.Second.Yes == "Yes" | Stop.Neighbor.Third.Yes == "Yes","Yes","No"),
+         Frameshift.competent = ifelse(!Codon %in% c("CTT","GGG","CCC","AGG","CTC","CCT","CTG","CGA","CCG","GTG","GCG"),"No","Yes")
 )
 })
 
 names(nse.df.lst)
 
+## The full model has very large VIFs (>5), so it is hard to trust these results
+## This appears to be due to the inclusion of the nucleotide at each codon position
+full.model.fit.lst <- lapply(nse.df.lst,
+                         function(x) {
+                           df <- as_data_frame(x)
+                           lm(Mean ~ First + Second + Third + Stop.Neighbor.First + Stop.Neighbor.Second + Stop.Neighbor.Third + Log10.Miss.Err.Prob + Frameshift.competent,data=df,weights = 1/(Std.Dev^2))})
+
+
+## Solution: separate the regressions
 model.fit.lst <- lapply(nse.df.lst,
                          function(x) {
-                           lm(Mean ~ First + Second + Third + Stop.Neighbor.First + Stop.Neighbor.Second + Stop.Neighbor.Third + Property ,data=x,weights = 1/(Std.Dev^2)) })
+                           df <- as_data_frame(x)
+                           lm(Mean ~ Stop.Neighbor.First + Stop.Neighbor.Second + Stop.Neighbor.Third + Log10.Miss.Err.Prob + Frameshift.competent,data=df,weights = 1/(Std.Dev^2))})
 
-#alex.w.weights.best.fits <-
-#  MASS::stepAIC(model.fit.lst[["Pr"]],
-#                direction = "both",
-#                trace = FALSE,
-#                criteria="AIC")
+model.nt.pos.lst <- lapply(nse.df.lst,
+                         function(x) {
+                           df <- as_data_frame(x)
+                           lm(Mean ~ First + Second + Third,data=df,weights = 1/(Std.Dev^2))})
 
-#alex.w.weights.best.fits$anova
+
+
+
+df <- as_data_frame(nse.df.lst[["Rate"]])
+alex.w.weights.best.fits <-
+ MASS::stepAIC(model.fit.lst[["Rate"]],
+               direction = "both",
+               trace = FALSE,
+               criteria="AIC")
+
+alex.w.weights.best.fits$anova
 
 ```
 
@@ -542,6 +647,9 @@ coef_data <- coef_data %>%
     term == "PropertyHydrophobic" ~ "AA Property - Hydrophobic",
     term == "PropertyNeutral" ~ "AA Property - Neutral",
     term == "PropertyOther" ~ "AA Property - Other",
+    term == "Frameshift.competentYes" ~ "Frameshift competent",
+    term == "WobbleYes" ~ "Wobble base pairing",
+    term == "Log10.Miss.Err.Prob" ~ "Missense error probability"
   ))
 
 plot_data <- data.frame(
@@ -549,20 +657,10 @@ plot_data <- data.frame(
   estimate = coef_data$estimate,
   conf.low = coef_data$conf.low,
   conf.high = coef_data$conf.high,
-  #sig = ifelse(coef_data$p.value < 0.05,"p < 0.05","Not significant")
   sig = ifelse(coef_data$p.value < 0.05,"*","")
-)
+) %>%
+  mutate(term=fct_relevel(term,"Intercept (Reference class)",after = Inf))
 
-reg.plot <- ggplot(plot_data, aes(x = term, y = estimate,fill=sig)) +
-  geom_bar(stat = "identity", color = "black", width = 0.7) +
-  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.25, position = position_dodge(0.7)) +
-  labs(x = "Variables",
-       y = "Coefficients",
-       fill="Significant") +
-  theme(plot.title = element_text(hjust=-1)) +
-  coord_flip() +
-  geom_hline(yintercept = 0)
-  #theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
 
 reg.plot <- ggplot(plot_data, aes(x = term, y = estimate,shape = sig)) +
   geom_bar(stat = "identity", color = "black", width = 0.7,fill="white",color="black") +
@@ -576,13 +674,11 @@ reg.plot <- ggplot(plot_data, aes(x = term, y = estimate,shape = sig)) +
   geom_point(aes(y = ifelse(estimate > 0, conf.high + 0.5, conf.low - 0.5)),
              position=position_dodge(0.9), 
              show.legend=FALSE) +
-  scale_shape_manual(values = c(NA, 8))
+  scale_shape_manual(values = c(NA, 8))# +
   #theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
 reg.plot
 
   
-
-reg.plot
 
 ggsave3(file = file.path(fig.dir, "regression-analysis-of-rate.pdf"),
        plot = reg.plot,
@@ -590,18 +686,22 @@ ggsave3(file = file.path(fig.dir, "regression-analysis-of-rate.pdf"),
 
 ```
 
-```{r fig.width=8,fig.height=6}
-p <- (nse.rate.by.codon | reg.plot) + 
+```{r fig.width=12,fig.height=12}
+p <- (nse.rate.by.codon | (free(nserate.vs.mse.prob / nserate.fs) / reg.plot)) + 
   plot_annotation(tag_levels = "A") + 
   plot_layout(widths=c(2,1))
 p
 
 
-ggsave3(file.path(fig.dir, "Figure_2.pdf"),p,width=17,height=12)
+ggsave3(file.path(fig.dir, "Figure_2.pdf"),p,width=10.5,height=12)
 
 ```
 
+
+
+
 ```{r}
+
 xtable::xtable(coef_data)
 ```
 
@@ -635,6 +735,19 @@ nserate.vs.pos <- nserate.vs.pos +
   theme(aspect.ratio = 1)
 nserate.vs.pos
 
+wt.vs.pos <- compareParameterVsPosition(full.yeast.data,
+                                         main.yeast.result,
+                                         parameter.name="Wait.Time",
+                                         xlab="Waiting time",
+                                         title="Waiting time vs. Average Position",
+                                         include.stop.codon.neighbor = F,
+                                         flip.coord=T,
+                                         correlation.label.pos = c(-3,0.53))
+
+wt.vs.pos <- wt.vs.pos + 
+  theme(aspect.ratio = 1)
+wt.vs.pos
+
 
 
 nse.prob.vs.pos <- compareParameterVsPosition(full.yeast.data,
@@ -657,13 +770,140 @@ nse.prob.vs.pos <-nse.prob.vs.pos +
 nse.prob.vs.pos 
 
 
-ggsave3(file = file.path(fig.dir, "nse-pr-vs-position.pdf"),
-       plot = nse.prob.vs.pos)
+# ggsave3(file = file.path(fig.dir, "nse-pr-vs-position.pdf"),
+#        plot = nse.prob.vs.pos)
+
+```
+
+```{r}
+
+plotCodonEnrichment <- function(rfp.data,use.normalized.position=T,cutoff.length=0.25,min.length=0)
+{
+  gene.length <- rfp.data %>%
+    count(GeneID) %>%
+    filter(n > min.length) %>%
+    mutate(Group=case_when(
+      n >= 100 & n < 200 ~ "[100,200)",
+      n >= 200 & n < 300 ~ "[200,300)",
+      n >= 300 & n < 400 ~ "[300,400)",
+      n >= 400 & n < 500 ~ "[400,500)",
+      n >= 500 & n < 600 ~ "[500,600)",
+      n >= 600 & n < 700 ~ "[600,700)",
+      n >= 700 & n < 800 ~ "[700,800)",
+      n >= 800 ~ ">=800",
+    ))
+
+  termini <- cutoff.length
+  
+  rfp.data<- rfp.data %>% 
+    left_join(gene.length) %>%
+    group_by(GeneID) %>% 
+    mutate(Normalized.Position = Position/n()) %>%
+    rowwise() %>%
+    mutate(AA = codonToAA(Codon)) %>%
+    ungroup() %>%
+    filter(AA != "W" & AA != "M")
+
+  
+  if(use.normalized.position)
+  {
+    end5 <- rfp.data %>%
+      filter(Normalized.Position < termini)
+   
+     end3 <- rfp.data %>%
+      filter(Normalized.Position > (1 - termini))
+     
+    mid <- rfp.data %>%
+      filter(Normalized.Position >= termini & Normalized.Position <= (1 - termini))
+  } else
+  {
+    end5 <- rfp.data %>%
+      filter(Position < termini)
+   
+     end3 <- rfp.data %>%
+      filter(Position > (n - termini))
+     
+     mid <- rfp.data %>%
+       filter(Position >= termini & Position <= (n - termini))
+  }
+  
+  exp.freq <- mid %>%
+    group_by(AA,Codon) %>%
+    summarize(Exp.Count= n()) %>%
+    ungroup() %>%
+    group_by(AA) %>%
+    mutate(Exp.Freq = Exp.Count/sum(Exp.Count))
+  
+  end5.count <- end5 %>%
+    group_by(AA,Codon) %>%
+    summarize(Obs.Count= n()) %>%
+    ungroup() %>%
+    group_by(AA) %>%
+    mutate(Total.AA = sum(Obs.Count))
+  
+  end3.count <- end3 %>%
+    group_by(AA,Codon) %>%
+    summarize(Obs.Count= n()) %>%
+    ungroup() %>%
+    group_by(AA) %>%
+    mutate(Total.AA = sum(Obs.Count))
+  
+  
+  end5.count <- end5.count %>% 
+    left_join(exp.freq)
+  end3.count <- end3.count %>% 
+    left_join(exp.freq)
+  
+  end5.test <- end5.count %>% 
+    group_by(AA,Codon) %>%
+    nest() %>%
+    mutate(binom = purrr::map(data,~binom.test(.x$Obs.Count,.x$Total.AA,.x$Exp.Freq,alternative="greater") %>% broom::tidy())) %>%
+    dplyr::select(-data) %>%
+    unnest(c(binom)) %>%
+    left_join(main.yeast.result$Log.NSEProb,by=c("AA","Codon")) %>%
+    ungroup() %>%
+    mutate(adj.p.value=p.adjust(p.value,method="BH"),
+           Significant= ifelse(adj.p.value < 0.05,"Enriched","No Difference"))
+  
+  end3.test <- end3.count %>% 
+    group_by(AA,Codon) %>%
+    nest() %>%
+    mutate(binom = purrr::map(data,~binom.test(.x$Obs.Count,.x$Total.AA,.x$Exp.Freq,alternative="greater") %>% broom::tidy())) %>%
+    dplyr::select(-data) %>%
+    unnest(c(binom)) %>%
+    left_join(main.yeast.result$Log.NSEProb,by=c("AA","Codon")) %>%
+    ungroup() %>%
+    mutate(adj.p.value=p.adjust(p.value,method="BH"),
+           Significant= ifelse(adj.p.value < 0.05,"Enriched","No Difference"))
+  
+  
+  enrich.5.end <- ggplot(end5.test,aes(x=Significant,y=Mean)) + 
+    geom_boxplot() + 
+    xlab("5'-end") +
+    ylab(expression("Log"[10]*"(Pr(NSE))")) + 
+    stat_compare_means()
+  enrich.3.end <- ggplot(end3.test,aes(x=Significant,y=Mean)) + 
+    geom_boxplot() + 
+    xlab("3'-end") +
+    stat_compare_means() +   
+    ylab(expression("Log"[10]*"(Pr(NSE))"))
+
+  
+  return(list(enrich.5.plot = enrich.5.end,enrich.3.plot=enrich.3.end))
+}
+
+rel.termini <- plotCodonEnrichment(rfp.data = full.yeast.data,use.normalized.position = T,cutoff.length = 0.25)
+abs.termini <- plotCodonEnrichment(rfp.data = full.yeast.data,use.normalized.position = F,cutoff.length = 100,min.length = 250)
+
+rel.termini[[1]]
+abs.termini[[1]]
+rel.termini[[2]]
+abs.termini[[2]]
 
 ```
 
 
- 
+
 
 ```{r}
 getNullStats <- function(null.dist)
@@ -768,10 +1008,18 @@ prob.by.pos
 
 
 
-```{r fig.width=8,fig.height=3}
-total <- (nse.prob.vs.pos | prob.by.pos) + plot_annotation(tag_levels = "A") + plot_layout(widths = c(1, 2))
+```{r fig.width=12,fig.height=3}
+total <- (rel.termini[[1]] | rel.termini[[2]] | prob.by.pos) + plot_annotation(tag_levels = c("A","","B")) + plot_layout(widths = c(1,1, 2))
 total
-ggsave3(file.path(fig.dir, "Figure_5.pdf"),total,width = 16,height=6)
+
+abs.termini.plot <- (abs.termini[[1]] | abs.termini[[2]]) + plot_annotation(tag_levels = c("A","","B"))
+abs.termini.plot
+ggsave3(file.path(fig.dir, "Figure_5.pdf"),total,width = 20,height=6)
+
+ggsave3(file.path(fig.dir, "codon_enrichment_abs_cutoff.pdf"),abs.termini.plot,width = 10,height=5)
+
+
+
 
 ```
 
@@ -818,7 +1066,7 @@ This is consistent with natural selection against nonsense errors being stronger
 
 mrna.vs.sigma <- ggplot(sigma,aes(x=RPKM,y=Sigma)) +
   geom_point(aes(color=log10(Length))) +
-  stat_cor(method="spearman",label.sep="\n",label.y.npc = "bottom") +
+  stat_cor(method="spearman",label.sep="\n",label.y.npc = "bottom",cor.coef.name = "rho") +
   xlab("mRNA Abundance (RPKM)") +
   scale_x_log10() +
   ylab(expression("Pr(No NSE) ="~sigma)) +
@@ -832,7 +1080,7 @@ mrna.vs.sigma
 
 mrna.vs.sigma.avg <- ggplot(sigma,aes(x=RPKM,y=Sigma^(1/Length))) +
   geom_point(aes(color=log10(Length))) +
-  stat_cor(method="spearman",label.sep="\n",label.x.npc = "center",label.y.npc = "bottom") +
+  stat_cor(method="spearman",label.sep="\n",label.x.npc = "center",label.y.npc = "bottom",cor.coef.name = "rho") +
   xlab("mRNA Abundance (RPKM)") +
   scale_x_log10() +
   ylab(expression("Gene-wise Average Probability of Elongating per Position")) +
@@ -857,7 +1105,10 @@ ppcor::pcor.test(x = log10(sigma.filt$RPKM),y=sigma.filt$Sigma,z=log10(sigma.fil
 
 ```
 
-```{r fig.width=6,fig.height=2}
+
+
+
+```{r fig.width=12,fig.height=4}
 sigma.var.genes <- (length.vs.sigma | mrna.vs.sigma)
 sigma.var.genes
 ```
@@ -898,7 +1149,7 @@ deta <- deta %>%
 
 sel.vs.nse <- ggplot(deta,aes(y=Rel.Log.NSEProb,x=DEta)) +
   geom_point() +
-  stat_cor(method="spearman",label.sep="\n",label.x = 1,label.y.npc = "bottom") +
+  stat_cor(method="spearman",label.sep="\n",label.x = 1,label.y.npc = "bottom",cor.coef.name = "rho") +
   geom_errorbarh(aes(xmin=`2.5%_ROC`,xmax=`97.5%_ROC`),alpha=0.5) +
   geom_errorbar(aes(ymin=`Rel_2.5%_PANSE_NSEProb`,ymax=`Rel_97.5%_PANSE_NSEProb`),alpha=0.5) +
   xlab(expression("Selection Against Pausing"~Delta*eta~"(ROC-SEMPPR)")) +
@@ -938,7 +1189,7 @@ prob.by.pos.by.expr <- ggplot(sigma.per.pos.per.bin,aes(x=Position,y=Sigma.i,col
   geom_line() +
   geom_smooth(method = "lm", formula = y ~ log(x)) +
   stat_regline_equation(formula =y ~ log(x),label.x = 10,show.legend = F,aes(label = sub("x", "log(x)", ..eq.label..))) +
-  stat_cor(label.x.npc = "center",method="spearman",show.legend = F) +
+  stat_cor(label.x.npc = "center",method="spearman",show.legend = F,cor.coef.name = "rho") +
   ylab("Mean Pr(No NSE)") +
   scale_color_viridis_d() +
   #ggtitle("Probability of Successful Elongation by Position:\nImpact of Gene Expression") +
@@ -950,7 +1201,7 @@ odds.by.pos.by.expr <- ggplot(sigma.per.pos.per.bin,aes(x=Position,y=Log.Odds,co
   geom_line() +
   geom_smooth(method = "lm", formula = y ~ log(x)) +
   stat_regline_equation(formula =y ~ log(x),label.x = 10,show.legend = F) +
-  stat_cor(label.x.npc = "center",method="spearman",show.legend = F) +
+  stat_cor(label.x.npc = "center",method="spearman",show.legend = F,cor.coef.name = "rho") +
   scale_color_viridis_d() +
   ylab("Log Odds") +
   #ggtitle("Odds of successful elongation increases by position:\nimpact of gene expression") +
@@ -968,4 +1219,104 @@ ggsave3(file.path(fig.dir, "Figure_6.pdf"),mrna.sigma.total,width=16,height=12)
 
 ```
 
+# Correlations between codon-specific parameters
 
+```{r}
+alpha.df <- main.yeast.result$Alpha %>% 
+  dplyr::rename(Alpha=Mean,Alpha_Std.Dev=Std.Dev,`Alpha_2.5%`=`2.5%`,`Alpha_97.5%`=`97.5%`)
+lambda.df <- main.yeast.result$Lambda %>% 
+  dplyr::rename(Lambda=Mean,Lambda_Std.Dev=Std.Dev,`Lambda_2.5%`=`2.5%`,`Lambda_97.5%`=`97.5%`)
+wt.df <- main.yeast.result$Wait.Time %>% 
+  dplyr::rename(Wait.Time=Mean,Wait.Time_Std.Dev=Std.Dev,`Wait.Time_2.5%`=`2.5%`,`Wait.Time_97.5%`=`97.5%`)
+log.nserate.df <- main.yeast.result$Log.NSERate %>% 
+  dplyr::rename(Log.NSERate=Mean,Log.NSERate_Std.Dev=Std.Dev,`Log.NSERate_2.5%`=`2.5%`,`Log.NSERate_97.5%`=`97.5%`)
+
+csp.param.df <- list(alpha.df,lambda.df,wt.df,log.nserate.df) %>%
+  purrr::reduce(left_join,by=c("AA","Codon")) %>%
+  rowwise() %>%
+  mutate(Stop.neighbors = stopCodonNeighbor(Codon,by.pos=3))
+
+ggplot(csp.param.df,aes(x=Alpha,y=Log.NSERate)) +
+  geom_point(aes(color=Stop.neighbors)) +
+  geom_errorbar(aes(ymin=`Log.NSERate_2.5%`,ymax=`Log.NSERate_97.5%`),alpha=0.5) +
+  geom_errorbarh(aes(xmin=`Alpha_2.5%`,xmax=`Alpha_97.5%`),alpha=0.5) +
+  xlab(expression(alpha)) +
+  ylab(expression("Log"[10]*"(NSE Rate)")) +
+  stat_cor(method="spearman",cor.coef.name = "rho") +
+  theme_cowplot() +
+  theme(aspect.ratio=1)
+  
+
+ggplot(csp.param.df,aes(x=Lambda,y=Log.NSERate)) +
+  geom_point(aes(color=Stop.neighbors)) +
+  geom_errorbar(aes(ymin=`Log.NSERate_2.5%`,ymax=`Log.NSERate_97.5%`),alpha=0.5) +
+  geom_errorbarh(aes(xmin=`Lambda_2.5%`,xmax=`Lambda_97.5%`),alpha=0.5) +
+  xlab(expression(lambda)) +
+  ylab(expression("Log"[10]*"(NSE Rate)")) +
+  stat_cor(method="spearman",cor.coef.name = "rho") +
+  theme_cowplot() +
+  theme(aspect.ratio=1)
+
+ggplot(csp.param.df,aes(x=Wait.Time,y=Log.NSERate)) +
+  geom_point(aes(color=Stop.neighbors)) +
+  geom_errorbar(aes(ymin=`Log.NSERate_2.5%`,ymax=`Log.NSERate_97.5%`),alpha=0.5) +
+  geom_errorbarh(aes(xmin=`Wait.Time_2.5%`,xmax=`Wait.Time_97.5%`),alpha=0.5) +
+  xlab(expression(alpha/lambda)) +
+  ylab(expression("Log"[10]*"(NSE Rate)")) +
+  stat_cor(method="spearman",cor.coef.name = "rho") +
+  theme_cowplot() +
+  theme(aspect.ratio=1)
+  
+
+
+
+```
+
+
+
+```{r}
+getNonCognate <- function(codon,tgcn)
+{
+  anticodon.cognate <- scer.tgcn %>%
+    filter(Codon == codon) %>%
+    dplyr::select(Near.cognate) %>%
+    mutate(anticodon=paste(Near.cognate,sep=",")) %>%
+    dplyr::select(anticodon) %>% 
+    deframe() %>% 
+    str_split(",") %>% 
+    unlist()
+  
+  anticodon.cognate <- anticodon.cognate[which(anticodon.cognate != "NA")]
+  cognate <- lapply(anticodon.cognate,reverseComplement) %>% unlist()
+  non.cogn.tgcn <- tgcn %>%
+    filter(Codon %in% cognate) %>%
+    summarize(sum(tRNA)) %>%
+    deframe() %>%
+    unname()
+  return(non.cogn.tgcn)
+  
+}
+
+scer.tgcn <- read_tsv("../00_data/01_correlates/tgcn.tsv")
+trna.cog <- read_tsv("../01_results/tgcn.tsv")
+scer.tgcn <- scer.tgcn %>%
+  left_join(trna.cog)
+nserate <- main.yeast.result$Log.NSERate
+wait.time <- main.yeast.result$Wait.Time
+
+sense.codons <- AnaCoDa::codons()
+sense.codons <- sense.codons[!sense.codons %in% c("TGA","TAA","TAG")]
+names(sense.codons) <- sense.codons
+
+noncognate.tgcn <- lapply(sense.codons,getNonCognate,scer.tgcn) %>%
+  bind_rows(.id="Codon") %>%
+  pivot_longer(everything(),names_to="Codon",values_to="Non_cognate_tGCN")
+
+test <- main.yeast.result$Log.NSERate %>%
+  left_join(wait.time,by=c("AA","Codon"),suffix=c("_NSE","_WT")) %>%
+  left_join(noncognate.tgcn)
+
+plot(test$Mean_NSE,test$Non_cognate_tGCN)
+cor.test(test$Mean_NSE,test$Non_cognate_tGCN,method = "spearman")
+
+```

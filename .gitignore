@@ -56,6 +56,9 @@ rsconnect/
 *.bam.bai
 *.bedgraph
 
+# Figure PDFs
+02_r_notebooks/Figures_Paper
+
 # AnaCoDa restart files
 */rstartFile.rst_[0-9]*
 

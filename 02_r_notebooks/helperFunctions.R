@@ -10,6 +10,31 @@ createPattern <- function(number,string)
   return(paste0(number,"_.*",string))
 }
 
+complementRules <- function(nucleotide)
+{
+  if (nucleotide == "A")
+  {
+    return("T")
+  } else if (nucleotide == "C"){
+    return("G")
+  } else if(nucleotide == "G"){
+    return("C")
+  } else if (nucleotide == "T"){
+    return("A")
+  }
+}
+
+## Here is a function you can use to get the reverse complement of a codon 
+reverseComplement <- function(seq)
+{
+  seq.split <- unlist(strsplit(seq,split=""))
+  reverse <- rev(seq.split)
+  trna <- unlist(lapply(reverse,complementRules))
+  trna <- paste(trna,collapse='')
+  return(trna)
+}
+
+
 getParameterDataFrames <- function(filepath,category=1)
 {
   alpha.files <- list.files(file.path(filepath,"Parameter_est"),pattern = createPattern(category,"_Alpha.csv"),full.names = T)
@@ -124,11 +149,13 @@ stopCodonNeighbor <- function(codon,by.pos=0,by.transition = F,by.transversion=F
 compareEstimates <- function(df.1,df.2,variable,xlab,ylab,title,color = "AA",log.scale.phi=F)
 {
   df.1 <- df.1[[variable]]
-  df.2 <- df.2[[variable]]
+  df.2 <- df.2[[variable]] 
   if (variable != "Phi")
   {
     merge.df <- df.1 %>% 
-      left_join(df.2,by=c("AA","Codon"))
+      left_join(df.2,by=c("AA","Codon")) %>%
+      mutate(Frameshift.competent = ifelse(!Codon %in% c("CTT","GGG","CCC","AGG","CTC","CCT","CTG","CGA","CCG","GTG","GCG"),"No","Yes"))
+    
     
     
     merge.df <- merge.df %>% 
@@ -152,7 +179,7 @@ compareEstimates <- function(df.1,df.2,variable,xlab,ylab,title,color = "AA",log
       theme_cowplot() +
       xlab(xlab) +
       ylab(ylab) +
-      stat_cor(method="spearman",label.sep="\n") +
+      stat_cor(method="spearman",label.sep="\n",cor.coef.name = "rho") +
       #theme(aspect.ratio=1) +
       ggtitle(title)
   } else if (variable == "Phi") {
@@ -166,7 +193,7 @@ compareEstimates <- function(df.1,df.2,variable,xlab,ylab,title,color = "AA",log
       theme_cowplot() +
       xlab(xlab) +
       ylab(ylab) +
-      stat_cor(method="spearman",label.sep="\n") +
+      stat_cor(method="spearman",label.sep="\n",cor.coef.name = "rho") +
       #theme(aspect.ratio=1) +
       ggtitle(title)
     if (log.scale.phi)
@@ -289,7 +316,8 @@ compareParameterVsPosition <- function(rfp.data,model.fit,
   pos.vs.nseprob <- pos.vs.nseprob +
     stat_cor(method="spearman",label.sep="\n",
              label.x = correlation.label.pos[1],
-             label.y=correlation.label.pos[2]) 
+             label.y=correlation.label.pos[2],
+             cor.coef.name = "rho") 
   pos.vs.nseprob
 }
 

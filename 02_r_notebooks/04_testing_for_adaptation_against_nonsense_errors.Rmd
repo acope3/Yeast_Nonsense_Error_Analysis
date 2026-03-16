@@ -33,7 +33,7 @@ suppressMessages(source("helperFunctions.R"))
 ```{r}
 main.yeast.data.path <- "../00_data/00_panse_input/2023-06-12_weinberg_etal_2016_all_frames_200_ramp.csv"
 full.yeast.data.path <- "../00_data/00_panse_input/2023-01-05_weinberg_etal_2016_all_frames_0_ramp.csv"
-main.yeast.result.path <- "../01_results/00_panse_fits/2023-07-20_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_200_ramp_run_2/final_restart/"
+main.yeast.result.path <- "../01_results/00_panse_fits/2026-01-07_Weinberg_etal_2016_all_frames_filter_genes_shorter_than_225_codons_200_ramp_updated_posterior_variable_nse/final_restart/"
 
 main.yeast.data <- read_csv(main.yeast.data.path)
 full.yeast.data <- read_csv(full.yeast.data.path)
@@ -205,7 +205,7 @@ expected.cost.vs.gene.expr <- expected.cost.df.long %>%
 
 cost.vs.rpkm <- ggplot(expected.cost.vs.gene.expr,aes(x=RPKM,y=Cost,color=Type)) +
   geom_point() +
-  stat_cor(aes(x=RPKM,y=Cost),method="spearman",label.sep="\n",show.legend = F,inherit.aes = F) +
+  stat_cor(aes(x=RPKM,y=Cost),method="spearman",label.sep="\n",show.legend = F,inherit.aes = F,cor.coef.name = "rho") +
   scale_x_log10() +
   scale_y_log10() +
   scale_color_viridis_d() +
@@ -481,7 +481,7 @@ mrna.vs.cost.p <- ggplot(rfp.results,aes(x=RPKM,y=Real.Cost/Length)) +
   geom_point(aes(color=log10(Length))) +
   scale_x_log10() +
   scale_y_log10() +
-  stat_cor(method="spearman",label.sep="\n") +
+  stat_cor(method="spearman",label.sep="\n",cor.coef.name = "rho") +
   xlab("mRNA Abundance (RPKM)") +
   #ylab(expression(atop("Expected Cost of mRNA Translation per codon",zeta*"(c)/N (ATP/Codon)")))+
   ylab("Expected cost of mRNA translation\nper codon")+
@@ -591,7 +591,7 @@ ge.vs.cost.diff <- ggplot(rfp.results.remove.missing,aes(x=log10(RPKM),y=Cost.Di
   geom_density_2d(color="yellow") +
   geom_hline(yintercept = 0) +
   xlab(expression("Log"[10]*"RPKM")) +
-  stat_cor(method = "spearman",label.sep="\n") +
+  stat_cor(method = "spearman",label.sep="\n",cor.coef.name = "rho") +
   theme_cowplot()
 
 ge.vs.cost.diff
@@ -600,7 +600,7 @@ length.vs.cost.diff <- ggplot(rfp.results.remove.missing,aes(x=log10(Length),y=C
   geom_point() +
   geom_density_2d(color="yellow") +
   geom_hline(yintercept = 0) +
-  stat_cor(method = "spearman",label.sep="\n") +
+  stat_cor(method = "spearman",label.sep="\n",cor.coef.name = "rho") +
   theme_cowplot()
 
 length.vs.cost.diff
