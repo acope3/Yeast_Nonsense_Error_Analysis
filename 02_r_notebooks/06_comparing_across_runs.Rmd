@@ -1,0 +1,241 @@
+---
+title: "Comparing results across experiments"
+author: "Alexander Cope"
+date: "2025-10-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+
+
+plotting.target <- switch(1,
+                          "paper",
+                          "talk")
+source("ggplot2.settings.R")
+suppressMessages(source("helperFunctions.R"))
+
+
+```
+
+# Comparing metagene profiles
+
+```{r}
+wein <- read_csv("../00_data/00_panse_input/2023-06-12_weinberg_etal_2016_all_frames_200_ramp.csv") %>%
+  mutate(Data="Weinberg")
+wu <- read_csv("../00_data/00_panse_input/2025-11-05_wu_etal_2019_all_frames_21nt_28nt_200_ramp.csv")%>%
+  mutate(Data="Wu")
+ferg <- read_csv("../00_data/00_panse_input/2025-11-21_ferguson_etal_2023_all_frames_200_ramp.csv") %>%
+  mutate(Data="Ferguson")
+
+genes.in.ferg <- unique(ferg$GeneID)
+
+rfp <- list(wein,wu,ferg) %>%
+  bind_rows()
+
+# rfp <- rfp %>%
+#   filter(GeneID %in% genes.in.ferg)
+
+if ("gene" %in% colnames(rfp))
+{
+  rfp <- rfp %>%
+    rename(GeneID = gene)
+}
+
+rfp <- rfp %>%
+  mutate(RFPCount.w.NA = ifelse(Position <= 200,NA,RFPCount)) %>%
+  group_by(GeneID,Data) %>%
+  mutate(RFPDensity = RFPCount/mean(RFPCount.w.NA,na.rm=T),
+         RFPDensity = ifelse(is.infinite(RFPDensity),NA,RFPDensity))
+
+rfp.by.pos <- rfp %>%
+  ungroup() %>%
+  group_by(Position,Data) %>%
+  dplyr::summarize(Density= mean(RFPDensity,na.rm=T))
+
+metagene.comp <- rfp.by.pos %>%
+  filter(Position <= 500)
+
+full.ramp.plot <- ggplot(metagene.comp,aes(x=Position,y=Density,color=Data)) +
+  geom_line() +
+  ylab("Ribosome Density") +
+  scale_color_viridis_d() +
+  geom_hline(yintercept = 1,linetype="dashed") +
+  xlab("Position") +
+  theme_cowplot() +
+  theme(legend.position="inside",
+        legend.position.inside =c(0.5, 0.7))
+full.ramp.plot
+
+
+
+
+
+
+
+
+```
+# Total Reads
+
+```{r}
+total.counts.used <- rfp %>%
+  ungroup() %>%
+  filter(Mixture != -1) %>%
+  group_by(Data) %>%
+  summarize(Total.reads = sum(RFPCount,na.rm=T)) %>%
+  mutate(Data=fct_relevel(Data,"Ferguson","Wu","Weinberg"),
+         Relative.reads = Total.reads/Total.reads[Data == "Ferguson"])
+
+ggplot(total.counts.used,aes(x=Data,y=Total.reads)) +
+  geom_col(color="black",fill="white") +
+  ylab("Total RFP Reads included in analysis") +
+  theme_cowplot()
+
+read.counts.all <- ggplot(total.counts.used,aes(x=Data,y=Relative.reads * 100)) +
+  geom_col(color="black",fill="white") +
+  ylab("Percentage of RFP counts\nrelative to Ferguson et al.") +
+  theme_cowplot()
+read.counts.all
+
+total.counts.used.ferg.genes <- rfp %>%
+  ungroup() %>%
+  filter(Mixture != -1 & GeneID %in% genes.in.ferg) %>%
+  group_by(Data) %>%
+  summarize(Total.reads = sum(RFPCount,na.rm=T)) %>%
+  mutate(Data=fct_relevel(Data,"Ferguson","Wu","Weinberg"),
+         Relative.reads = Total.reads/Total.reads[Data == "Ferguson"]) 
+
+read.counts.just.ferg <- ggplot(total.counts.used.ferg.genes,aes(x=Data,y=Relative.reads * 100)) +
+  geom_col(color="black",fill="white") +
+  ylab("Percentage of RFP counts\nrelative to Ferguson et al.") +
+  theme_cowplot()
+read.counts.just.ferg
+
+
+```
+# Wait times vs tAI
+
+```{r}
+tai <- read_tsv("../../riboviz/data/yeast_tRNAs.tsv")
+
+wt.files <- c("2026-01-07_Weinberg_etal_2016_all_frames_filter_genes_shorter_than_225_codons_200_ramp_updated_posterior_variable_nse","2025-11-05_Wu_etal_2019_28nt_21nt_rfp_all_frames_filter_genes_shorter_than_225_codons_200_ramp","2025-11-21_Ferguson_etal_2023_rep1_plus_rep2_all_frames_filter_genes_shorter_than_225_codons_200_ramp")
+wt.file.paths <- file.path("../01_results/00_panse_fits/",wt.files,"final_restart/Parameter_est/")
+
+wt.file.paths <- list.files(wt.file.paths,pattern="*_WaitingTime.csv",full.names = T)
+names(wt.file.paths) <- c("Wu","Ferguson","Weinberg")
+wt.df <- purrr::map(wt.file.paths,read_csv) %>% 
+  bind_rows(.id="Data")
+wt.df <- wt.df %>%
+  left_join(tai,by=c("AA","Codon"))
+
+wt.vs.tai <- ggplot(wt.df,aes(x=1/tAI,y=Mean)) +
+  geom_point() +
+  stat_cor(method="spearman",cor.coef.name = "rho",label.sep = "\n") +
+  scale_x_log10() +
+  facet_wrap(~Data,ncol=3)
+
+
+
+
+
+```
+
+
+
+# Weinberg: standard nucleotide offset vs. riboWaltz recommendation
+```{r}
+wein.std.offset <- getParameterDataFrames("../01_results/00_panse_fits/2026-01-07_Weinberg_etal_2016_all_frames_filter_genes_shorter_than_225_codons_200_ramp_updated_posterior_variable_nse/final_restart/")
+wein.updated.offset <- getParameterDataFrames("../01_results/00_panse_fits/2025-10-08_weinberg_etal_replicated_different_offset_genes_shorter_than_225_codons_200_ramp/final_restart/")
+
+compareEstimates(wein.std.offset,wein.updated.offset ,variable="Alpha",xlab="Weinberg Standard Alpha",ylab="Weingberg riboWaltz Alpha",title="",color=NA)
+compareEstimates(wein.std.offset,wein.updated.offset ,variable="Lambda",xlab="Weinberg Standard Lambda",ylab="Weingberg riboWaltz Lambda",title="",color=NA)
+compareEstimates(wein.std.offset,wein.updated.offset ,variable="Wait.Time",xlab="Weinberg Standard Waiting Time",ylab="Weingberg riboWaltz Waiting Time",title="",color=NA)
+offset.impact <- compareEstimates(wein.std.offset,wein.updated.offset ,variable="Log.NSERate",xlab="Weinberg Standard log(NSE Rate)",ylab="Weingberg riboWaltz log(NSE Rate)",title="",color = NA)
+offset.impact
+ggsave2(filename = "Figures_Paper/asite_offset_impact.pdf",plot = offset.impact)
+
+```
+
+# Weinberg: impact of removing frameshift and nonsense mediated decay prone genes
+```{r}
+wein.no.fs.nmd <- getParameterDataFrames("../01_results/00_panse_fits/2025-12-29_Weinberg_etal_2016_all_frames_filter_genes_shorter_than_225_codons_framshift_ngd__200_ramp/final_restart/")
+
+
+wein.no.fs.nmd$Log.NSERate <- wein.no.fs.nmd$Log.NSERate %>% 
+  mutate(Frameshift.competent = ifelse(!Codon %in% c("CTT","GGG","CCC","AGG","CTC","CCT","CTG","CGA","CCG","GTG","GCG"),"No","Yes"))
+test <- wein.no.fs.nmd$Log.NSERate %>%
+  left_join(wein.std.offset$Log.NSERate,by=c("AA","Codon"))
+
+test <- test %>%
+  mutate(Diff=Mean.x - Mean.y) 
+
+ggplot(test,aes(x=Frameshift.competent,y=Diff)) +
+  geom_boxplot() +
+  stat_compare_means()
+                                                                    
+compareEstimates(wein.std.offset,wein.no.fs.nmd ,variable="Alpha",xlab="Weinberg Standard Alpha",ylab="Weingberg riboWaltz Alpha",title="",color=NA)
+compareEstimates(wein.std.offset,wein.no.fs.nmd ,variable="Lambda",xlab="Weinberg Standard Lambda",ylab="Weingberg riboWaltz Lambda",title="",color=NA)
+compareEstimates(wein.std.offset,wein.no.fs.nmd ,variable="Wait.Time",xlab="Weinberg Standard Waiting Time",ylab="Weingberg riboWaltz Waiting Time",title="",color=NA)
+compareEstimates(wein.std.offset,wein.no.fs.nmd,variable="Log.NSERate",xlab="Weinberg Standard log(NSERate)",ylab="Weingberg riboWaltz log(NSE Rate)",title="",color = "AA")
+compareEstimates(wein.std.offset,wein.no.fs.nmd,variable="Log.NSEProb",xlab="Weinberg Standard log(NSE Rate)",ylab="Weingberg riboWaltz log(NSE Rate)",title="",color = NA)
+```
+
+
+# Weinberg vs. Wu (28-30nt and 20-22nt reads, riboWaltz offset)
+
+```{r}
+wein <- wein.std.offset
+wu <- getParameterDataFrames("../01_results/00_panse_fits/2025-11-05_Wu_etal_2019_28nt_21nt_rfp_all_frames_filter_genes_shorter_than_225_codons_200_ramp/final_restart/")
+
+compareEstimates(wein,wu,variable="Alpha",xlab="Weinberg Alpha",ylab="Wu Alpha",title="",color=NA)
+compareEstimates(wein,wu,variable="Lambda",xlab="Weinberg Lambda",ylab="Wu Lambda",title="",color=NA)
+compareEstimates(wein,wu,variable="Wait.Time",xlab="Weinberg Waiting Time",ylab="Wu Waiting Time",title="",color=NA)
+weinberg.vs.wu <- compareEstimates(wein,wu,variable="Log.NSERate",xlab="Weinberg log(NSE Rate)",ylab="Wu log(NSE Rate)",title="",color = NA)
+weinberg.vs.wu
+compareEstimates(wein,wu,variable="Log.NSEProb",xlab="Weinberg log(NSE Prob)",ylab="Wu log(NSE Prob)",title="",color = NA)
+```
+# Weinberg vs. Ferguson
+
+```{r}
+wein <- wein.std.offset
+ferg <- getParameterDataFrames("../01_results/00_panse_fits/2025-11-21_Ferguson_etal_2023_rep1_plus_rep2_all_frames_filter_genes_shorter_than_225_codons_200_ramp/final_restart/")
+
+compareEstimates(wein,ferg,variable="Alpha",xlab="Weinberg Alpha",ylab="Ferguson Alpha",title="",color=NA)
+compareEstimates(wein,ferg,variable="Lambda",xlab="Weinberg Lambda",ylab="Ferguson  Lambda",title="",color=NA)
+compareEstimates(wein,ferg,variable="Wait.Time",xlab="Weinberg Waiting Time",ylab="Ferguson  Waiting Time",title="",color=NA)
+weinberg.vs.ferg <- compareEstimates(wein,ferg,variable="Log.NSERate",xlab="Weinberg log(NSE Rate)",ylab="Ferguson log(NSE Rate)",title="",color = NA)
+weinberg.vs.ferg
+compareEstimates(wein,ferg,variable="Log.NSEProb",xlab="Weinberg log(NSE Prob)",ylab="Ferguson log(NSE Prob)",title="",color = NA)
+compareEstimates(wein,ferg,variable="Phi",xlab="Weinberg log(NSE Rate)",ylab="Ferguson log(NSE Rate)",title="",log.scale.phi = T)
+
+
+
+```
+
+
+```{r}
+wu.vs.ferg <- compareEstimates(wu,ferg,variable="Log.NSERate",xlab="Wu log(NSE Rate)",ylab="Ferguson log(NSE Rate)",title="",color = NA)
+wu.vs.ferg
+compareEstimates(wu,ferg,variable="Log.NSEProb",xlab="Wu log(NSE Prob)",ylab="Ferguson log(NSE PRob)",title="",color = NA)
+
+
+```
+
+```{r fig.width=12, fig.height=4}
+weinberg.vs.wu | weinberg.vs.ferg | wu.vs.ferg + plot_annotation(tag_levels="A")
+
+
+```
+
+
+```{r fig.width=12,fig.height=15}
+dataset.comp <- (full.ramp.plot | read.counts.all | read.counts.just.ferg) / (weinberg.vs.wu | weinberg.vs.ferg) / wt.vs.tai + plot_annotation(tag_levels = "A")
+dataset.comp 
+ggsave2("Figures_Paper/compare_datasets.pdf",plot = dataset.comp,width=15,height = 15)
+
+
+
+
+
+```

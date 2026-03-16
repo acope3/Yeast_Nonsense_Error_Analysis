@@ -50,5 +50,17 @@ rsconnect/
 
 # Large Parameter Object files
 **/parameter.Rda
+
+# BAM files and Bedgraph
 *.bam
 *.bam.bai
+*.bedgraph
+
+# Figure PDFs
+02_r_notebooks/Figures_Paper
+
+# AnaCoDa restart files
+**/rstartFile.rst_[0-9]*
+
+.DS_Store
+**/.DS_Store

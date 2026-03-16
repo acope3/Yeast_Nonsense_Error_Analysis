@@ -232,6 +232,10 @@ variable <- getParameterDataFrames("../01_results/00_panse_fits/2023-07-20_Weinb
 
 same <- getParameterDataFrames("../01_results/00_panse_fits/2023-07-20_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_200_ramp_uniform_nse/final_restart/")
 
+# variable <- getParameterDataFrames("../01_results/00_panse_fits/2025-11-21_Ferguson_etal_2023_rep1_plus_rep2_all_frames_filter_genes_shorter_than_150_codons_100_ramp/final_restart/")
+# 
+# same <- getParameterDataFrames("../01_results/00_panse_fits/2025-11-21_Ferguson_etal_2023_rep1_plus_rep2_all_frames_filter_genes_shorter_than_150_codons_100_ramp_share_nse/final_restart/")
+
 
 var.nse <- variable$Log.NSERate %>%
   mutate(AA.Codon = paste(AA,Codon,sep=": "))
@@ -276,14 +280,46 @@ ggsave2(file.path(fig.dir, "nserate_var_across_codons.pdf"),plot = p, height=5,w
 ## Comparing models using DIC
 
 ```{r}
-mcmc.unif <- loadMCMCObject("../01_results/00_panse_fits/2023-07-20_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_200_ramp_uniform_nse/final_restart/R_objects/mcmc.Rda")
-mcmc.var <- loadMCMCObject("../01_results/00_panse_fits/2023-07-20_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_200_ramp_run_2/final_restart/R_objects/mcmc.Rda")
+mcmc.unif <- loadMCMCObject("../01_results/00_panse_fits/2026-01-07_Weinberg_etal_2016_all_frames_filter_genes_shorter_than_225_codons_200_ramp_updated_posterior_shared_nse/final_restart/R_objects/mcmc.Rda")
+# mcmc.var <- loadMCMCObject("../01_results/00_panse_fits/2023-07-20_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_200_ramp_run_2/final_restart/R_objects/mcmc.Rda")
+mcmc.var <- loadMCMCObject("../01_results/00_panse_fits/2026-01-07_Weinberg_etal_2016_all_frames_filter_genes_shorter_than_225_codons_200_ramp_updated_posterior_variable_nse/final_restart//R_objects/mcmc.Rda")
+mcmc.no.nse <- loadMCMCObject("../01_results/03_pa_fits/2025-07-10_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_200_ramp_updated_posterior/final_restart/R_objects/mcmc.Rda")
+
+llik.var <- mcmc.var$getLogLikelihoodTrace()
+llik.unif <- mcmc.unif$getLogLikelihoodTrace()
+llik.no.nse <- mcmc.no.nse$getLogLikelihoodTrace()
+
+dev.var <- -2*llik.var[100:10000]
+dev.unif <- -2*llik.unif[100:10000]
+dev.no.nse <- -2*llik.no.nse[100:10000]
+
+mean.dev.var <- mean(dev.var)
+mean.dev.unif <- mean(dev.unif)
+mean.dev.no.nse <- mean(dev.no.nse)
+
+pd.var <- 1/2 * var(dev.var)
+pd.unif <- 1/2 * var(dev.unif)
+pd.no.nse <- 1/2 * var(dev.no.nse)
+
+dic.var <- mean.dev.var + pd.var
+dic.unif <- mean.dev.unif + pd.unif
+dic.no.nse <- mean.dev.no.nse + pd.no.nse
+
+dic.var - dic.unif
+dic.var - dic.no.nse
+```
+
+
+```{r}
+mcmc.unif <- loadMCMCObject("../01_results/00_panse_fits/2025-11-21_Ferguson_etal_2023_rep1_plus_rep2_all_frames_filter_genes_shorter_than_225_codons_200_ramp_share_nse/final_restart/R_objects/mcmc.Rda")
+mcmc.var <- loadMCMCObject("../01_results/00_panse_fits/2025-11-21_Ferguson_etal_2023_rep1_plus_rep2_all_frames_filter_genes_shorter_than_225_codons_200_ramp/final_restart/R_objects/mcmc.Rda")
 
 llik.var <- mcmc.var$getLogLikelihoodTrace()
 llik.unif <- mcmc.unif$getLogLikelihoodTrace()
 
-dev.var <- -2*llik.var[5000:10000]
-dev.unif <- -2*llik.unif[5000:10000]
+dev.var <- -2*llik.var[100:10000]
+dev.unif <- -2*llik.unif[100:10000]
+
 mean.dev.var <- mean(dev.var)
 mean.dev.unif <- mean(dev.unif)
 
@@ -293,6 +329,6 @@ pd.unif <- 1/2 * var(dev.unif)
 dic.var <- mean.dev.var + pd.var
 dic.unif <- mean.dev.unif + pd.unif
 
+
 dic.var - dic.unif
 ```
-

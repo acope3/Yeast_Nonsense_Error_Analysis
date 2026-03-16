@@ -33,20 +33,23 @@ if ("gene" %in% colnames(rfp))
 }
 
 rfp <- rfp %>%
+  mutate(RFPCount.w.NA = ifelse(Position <= 200,NA,RFPCount)) %>%
   group_by(GeneID) %>%
-  mutate(RFPDensity = RFPCount/mean(RFPCount))
-
-
+  mutate(RFPDensity = RFPCount/mean(RFPCount.w.NA,na.rm=T),
+         RFPDensity = ifelse(is.infinite(RFPDensity),NA,RFPDensity))
 
 rfp.by.pos <- rfp %>%
   ungroup() %>%
   group_by(Position) %>%
-  dplyr::summarize(Density= mean(RFPDensity))
+  dplyr::summarize(Density= mean(RFPDensity,na.rm=T))
+
 sim.rfp <- read_csv("../01_results/01_simulations/simulated_rfp.csv")
 
 sim.rfp <- sim.rfp %>%
+  mutate(RFPCount.w.NA = ifelse(Position <= 200,NA,RFPCount)) %>%
   group_by(GeneID) %>%
-  mutate(RFPDensity = RFPCount/mean(RFPCount))
+  mutate(RFPDensity = RFPCount/mean(RFPCount.w.NA,na.rm=T),
+         RFPDensity = ifelse(is.infinite(RFPDensity),NA,RFPDensity))
 
 
 
@@ -61,14 +64,47 @@ metagene.comp <- rfp.by.pos %>%
   pivot_longer(c(Density_Real,Density_Simulated),names_to = "Data",values_to="Density") %>%
   mutate(Data = ifelse(Data== "Density_Real","Real","Simulated"))
 
-ramp.plot <- ggplot(metagene.comp,aes(x=Position,y=Density,color=Data)) +
+
+metagene.comp.post.200 <- metagene.comp %>%
+  mutate(Density = ifelse(Position <= 200,NA,Density))
+metagene.comp.pre.200 <- metagene.comp %>%
+  mutate(Density = ifelse(Position > 500,NA,Density))
+
+full.ramp.plot <- ggplot(metagene.comp,aes(x=Position,y=Density,color=Data)) +
   geom_line() +
   ylab("Ribosome Density") +
   scale_color_viridis_d() +
+  geom_hline(yintercept = 1,linetype="dashed") +
   xlab("Position") +
+  annotate("rect",fill="black",alpha=0.4,xmin=0,xmax=200,ymin=-Inf,ymax=Inf) +
+  annotate("text",x=600,y=2.5,label="Region used for\nparameter\nestimation",size=3)+
+  annotate("text",x=100,y=2.5,label="Excluded",color="white",size=3)+
+  theme_cowplot()
+full.ramp.plot
+
+
+post.200.ramp.plot <- ggplot(metagene.comp.post.200,aes(x=Position,y=Density,color=Data)) +
+  geom_line() +
+  ylab("Ribosome Density") +
+  scale_color_viridis_d() +
+  geom_hline(yintercept = 1,linetype="dashed") +
+  xlab("Position") +
+  ylim(NA,max(metagene.comp$Density)) +
+  scale_x_continuous(breaks=c(0,200,400,600,800,1000)) +
+  theme_cowplot()
+post.200.ramp.plot
+
+pre.200.ramp.plot <- ggplot(metagene.comp.pre.200,aes(x=Position,y=Density,color=Data)) +
+  geom_line() +
+  ylab("Ribosome Density") +
+  scale_color_viridis_d() +
+  geom_hline(yintercept = 1,linetype="dashed") +
+  xlab("Position") +
+  scale_x_continuous(breaks=c(0,500),limits=c(0,500)) +
+  ylim(min(metagene.comp$Density),NA) +
   theme_cowplot() +
-  geom_hline(yintercept = 1,linetype="dashed")
-ramp.plot
+  geom_vline(xintercept = c(50,100,200))
+pre.200.ramp.plot
 
 
 ```
@@ -76,27 +112,27 @@ ramp.plot
 
 ```{r}
 rfp.real.vs.sim <- rfp %>%
-  left_join(sim.rfp,by=c("GeneID","Position","Codon"),suffix=c("_Real","_Sim")) %>%
-  mutate(Deviation = log(RFPDensity_Real) - log(RFPDensity_Sim))# %>%
-  #filter(RFPCount_Real !=0 & RFPCount_Sim != 0)
+  left_join(sim.rfp,by=c("GeneID","Position","Codon"),suffix=c("_Real","_Sim"))
 
 cor.test(rfp.real.vs.sim$RFPCount_Real,rfp.real.vs.sim$RFPCount_Sim,method="spearman")
 
-rfp.real.vs.sim.no.zero <- rfp.real.vs.sim %>% 
-  filter(RFPCount_Real !=0 & RFPCount_Sim != 0)
+rfp.real.vs.sim.no.zero <- rfp.real.vs.sim %>%
+  filter(RFPCount_Real != 0 & RFPCount_Sim != 0 & Position > 200) %>%
+  mutate(Deviation = log(RFPDensity_Real) - log(RFPDensity_Sim)) %>%
+  filter(!is.nan(Deviation))
+  
 
 dev.hist <- ggplot(rfp.real.vs.sim.no.zero,aes(x=Deviation)) +
   geom_histogram(color="black",fill="white") +
   theme_cowplot() +
   xlab("Deviation\nLog(True RFP Count) - Log(Simulated RFP Count)") +
   ylab("Count")
-  theme(aspect.ratio=1)
 dev.hist
 
 ggsave2(file.path(fig.dir,"deviation_real_vs_simulated.pdf"),dev.hist,height = 5,width=7)
 
 t.test(rfp.real.vs.sim.no.zero$Deviation)
-print(paste("The fold change on the natural scale is:", exp(mean(rfp.real.vs.sim$Deviation))))
+print(paste("The fold change on the natural scale is:", exp(mean(rfp.real.vs.sim.no.zero$Deviation,na.rm=T))))
 ```
 
 ## First 200 vs. post-200
@@ -106,9 +142,10 @@ This is consistent with previous results that applied Sin et al.'s approach to t
 
 ```{r}
 ignore.post.200 <- getParameterDataFrames("../01_results/00_panse_fits/2023-07-20_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_ignore_post_200_ramp/final_restart/")
-ignore.first.200 <- getParameterDataFrames("../01_results/00_panse_fits/2023-07-20_Weinberg_etal_all_genes_filter_genes_shorter_than_225_codons_200_ramp_run_2/final_restart/")
+ignore.first.200 <- getParameterDataFrames("../01_results/00_panse_fits/2026-01-07_Weinberg_etal_2016_all_frames_filter_genes_shorter_than_225_codons_200_ramp_updated_posterior_variable_nse/final_restart/")
 
-ramp.vs.post.nse <- compareEstimates(ignore.post.200,ignore.first.200,variable="Log.NSERate",xlab="Log10(NSE Rate)\nFirst 200 Codons",ylab="Log10(NSE Rate)\nPost-200 codons",title="",color = NA)
+ramp.vs.post.nse <- compareEstimates(ignore.first.200,ignore.post.200,variable="Log.NSERate",ylab="First 200 Codons\nLog10(NSE Rate)",xlab="Post-200 codons\nLog10(NSE Rate)",title="",color=NA) 
+  
 
 ramp.vs.post.wt <- compareEstimates(ignore.post.200,ignore.first.200,variable="Wait.Time",xlab="Elongation Waiting Times\nFirst 200 Codons",ylab="Elongation Waiting Times\nPost-200 codons",title="",color =  NA)
 
@@ -121,12 +158,21 @@ ramp.vs.post.phi
 
 ```
 
+### Probability of NSE occurring in first 200 codons
+
+```{r}
+p <- mean(ignore.post.200$NSEProb$Mean)
+k <- 1:200
+sum(dgeom(k,p))
 
 
-```{r fig.width=10}
-ramp.nse.effect <- (ramp.plot | ramp.vs.post.nse) + plot_annotation(tag_levels = "A") + plot_layout(widths = c(1.5,1))
+```
+
+
+```{r fig.width=10,fig.height=5}
+ramp.nse.effect <- (full.ramp.plot | ramp.vs.post.nse) + plot_annotation(tag_levels = "A") + plot_layout(widths = c(1.5,1))
 ramp.nse.effect
-ggsave2(file.path(fig.dir, "Figure_3.pdf"),ramp.nse.effect,width=9,height=4)
+ggsave2(file.path(fig.dir, "Figure_3.pdf"),ramp.nse.effect,width=11,height=4.5)
 
 ramp.other.effect <- ramp.vs.post.wt | ramp.vs.post.phi + plot_annotation(tag_levels = "A")
 
@@ -134,3 +180,4 @@ ggsave2(file.path(fig.dir,"ramp_effect_waiting_time_and_phi.pdf"),ramp.other.eff
 
 
 ```
+

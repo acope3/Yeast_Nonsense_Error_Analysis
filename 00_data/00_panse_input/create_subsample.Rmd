@@ -453,3 +453,178 @@ filterDataset(input = input,
 
 
 ```
+
+
+## 11-04-2025
+
+### Weinberg data
+Going to repeat analysis of Weinberg et al. with putative No-Go Decay targets and genes prone to frameshifts removed 
+
+```{r warning=FALSE}
+input <- "00_unfiltered_genes/weinberg_etal_2016_replicate_different_offsets_all_genes.csv"
+output_dir <- "./"
+output_rfp <- "2025-11-04_weinberg_etal_2016_all_frames_200_ramp.csv"
+phi <- "00_unfiltered_genes/weinberg_etal_2016_phi.csv"
+output_phi <- "2025-11-04_weinberg_etal_2016_all_frames_phi.csv"
+min_length_gene <- 225
+min_read_counts <- 1
+remove_outliers <- TRUE
+exclude_these_genes <- "../proteins_to_exclude_paralogs_mito_scer_frameshift_ngd.txt"
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts = min_read_counts,
+                      remove_outliers = remove_outliers,
+                      ramp.region.cutoff = 200,
+                      exclude_these_genes = exclude_these_genes)
+
+
+```
+
+
+
+### Ferguson
+
+```{r warning=FALSE}
+input <- "00_unfiltered_genes/ferguson_etal_2023_ottr_p1_all_genes.csv"
+output_dir <- "./"
+output_rfp <- "2025-11-04_ferguson_etal_2023_all_frames_200_ramp.csv"
+phi <- "00_unfiltered_genes/ferguson_etal_2023_ottr_p1_all_genes_phi.csv"
+output_phi <- "2025-11-04_ferguson_etal_2023_all_frames_phi.csv"
+min_length_gene <- 225
+min_read_counts <- 1
+remove_outliers <- TRUE
+exclude_these_genes <- "../proteins_to_exclude_paralogs_mito_scer.txt"
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts = min_read_counts,
+                      remove_outliers = remove_outliers,
+                      ramp.region.cutoff = 200,
+                      exclude_these_genes = exclude_these_genes)
+
+
+```
+
+
+## 11-05-2025
+
+### Wu et al. with 28nt and 21nt
+Note the Wu et al. data here used A-site offsets predicted from riboWaltz.
+
+```{r warning=FALSE}
+input <- "00_unfiltered_genes/wu_etal_2019_chx1_all_genes_21nt_and_28nt_reads.csv"
+output_dir <- "./"
+output_rfp <- "2025-11-05_wu_etal_2019_all_frames_21nt_28nt_200_ramp.csv"
+phi <- "00_unfiltered_genes/wu_etal_2019_chx1_phi.csv"
+output_phi <- "2025-11-05_wu_etal_2019_all_frames_21nt_28nt_phi.csv"
+min_length_gene <- 225
+min_read_counts <- 1
+remove_outliers <- TRUE
+exclude_these_genes <- "../proteins_to_exclude_paralogs_mito_scer.txt"
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts = min_read_counts,
+                      remove_outliers = remove_outliers,
+                      ramp.region.cutoff = 200,
+                      exclude_these_genes = exclude_these_genes)
+
+
+```
+## 11-07-2025
+Ferguson et al. data OTTR P1 exhibits a smaller ramp region near the 5'-end (about 50 nt).
+
+```{r warning=FALSE}
+input <- "00_unfiltered_genes/ferguson_etal_2023_ottr_p1_all_genes.csv"
+output_dir <- "./"
+output_rfp <- "2025-11-07_ferguson_etal_2023_all_frames_50_ramp.csv"
+phi <- "00_unfiltered_genes/ferguson_etal_2023_ottr_p1_all_genes_phi.csv"
+output_phi <- "2025-11-07_ferguson_etal_2023_all_frames_phi.csv"
+min_length_gene <- 225
+min_read_counts <- 1
+remove_outliers <- TRUE
+exclude_these_genes <- "../proteins_to_exclude_paralogs_mito_scer.txt"
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts = min_read_counts,
+                      remove_outliers = remove_outliers,
+                      ramp.region.cutoff = 50,
+                      exclude_these_genes = exclude_these_genes)
+
+
+```
+
+## 11-21-2025
+Ferguson et al. data OTTR P1 is a bit sparser than some of our other datasets. They did two technical replicates for these measurements, so let's simply combine them by adding together the read counts assigned to each codon. 
+
+```{r warning=FALSE}
+input <- "00_unfiltered_genes/ferguson_etal_2023_ottr_p1_rep1_plus_rep2_all_genes.csv"
+output_dir <- "./"
+output_rfp <- "2025-11-21_ferguson_etal_2023_all_frames_200_ramp.csv"
+phi <- "00_unfiltered_genes/ferguson_etal_2023_ottr_p1_rep1_plus_rep2_all_genes_phi.csv"
+output_phi <- "2025-11-21_ferguson_etal_2023_all_frames_200_ramp_phi.csv"
+min_length_gene <- 225
+min_read_counts <- 1
+remove_outliers <- TRUE
+exclude_these_genes <- "../proteins_to_exclude_paralogs_mito_scer.txt"
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts = min_read_counts,
+                      remove_outliers = remove_outliers,
+                      ramp.region.cutoff = 200,
+                      exclude_these_genes = exclude_these_genes,
+                      pause_site_z_score_cutoff=3.92)
+
+
+```
+
+
+
+```{r warning=FALSE}
+input <- "00_unfiltered_genes/ferguson_etal_2023_ottr_p1_rep1_plus_rep2_all_genes.csv"
+output_dir <- "./"
+output_rfp <- "2025-11-21_ferguson_etal_2023_all_frames_100_ramp.csv"
+phi <- "00_unfiltered_genes/ferguson_etal_2023_ottr_p1_rep1_plus_rep2_all_genes_phi.csv"
+output_phi <- "2025-11-21_ferguson_etal_2023_all_frames_100_ramp_phi.csv"
+min_length_gene <- 150
+min_read_counts <- 1
+remove_outliers <- TRUE
+exclude_these_genes <- "../proteins_to_exclude_paralogs_mito_scer.txt"
+
+filterDataset(input = input,
+                      output_dir = output_dir,
+                      output_rfp = output_rfp,
+                      phi = phi,
+                      output_phi = output_phi,
+                      min_length_gene = min_length_gene,
+                      min_read_counts = min_read_counts,
+                      remove_outliers = remove_outliers,
+                      ramp.region.cutoff = 100,
+                      exclude_these_genes = exclude_these_genes,
+                      pause_site_z_score_cutoff=3.92)
+
+
+```

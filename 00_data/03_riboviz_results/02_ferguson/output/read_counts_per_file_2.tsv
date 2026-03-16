@@ -1,0 +1,14 @@
+# Created by: riboviz
+# Date: 2025-11-20 22:00:04.384234
+# Command-line tool: /panfs/accrepfs.vampire/home/copea1/riboviz/riboviz/tools/count_reads.py
+# File: /panfs/accrepfs.vampire/home/copea1/riboviz/riboviz/count_reads.py
+# Version: commit 45514cc565e3cdbb4e44ca919964ab8b8e1ee045 date 2025-10-13 17:13:08-05:00
+SampleName	Program	File	NumReads	Description
+OTTR_P1_2	input	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Ferguson_etal_2023_NatMethods/input/SRR23242245.fastq	38389815	input
+OTTR_P1_2	cutadapt	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Ferguson_etal_2023_NatMethods/tmp/OTTR_P1_2/trim.fq	38367838	Reads after removal of sequencing library adapters
+OTTR_P1_2	hisat2	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Ferguson_etal_2023_NatMethods/tmp/OTTR_P1_2/nonrRNA.fq	17550120	Reads that did not align to rRNA or other contaminating reads in rRNA index files
+OTTR_P1_2	hisat2	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Ferguson_etal_2023_NatMethods/tmp/OTTR_P1_2/rRNA_map.sam	20773332	Reads aligned to rRNA and other contaminating reads in rRNA index files
+OTTR_P1_2	hisat2	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Ferguson_etal_2023_NatMethods/tmp/OTTR_P1_2/unaligned.fq	1756724	Unaligned reads removed by alignment of remaining reads to ORFs index files
+OTTR_P1_2	hisat2	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Ferguson_etal_2023_NatMethods/tmp/OTTR_P1_2/orf_map.sam	18080843	Reads aligned to ORFs index files
+OTTR_P1_2	riboviz.tools.trim_5p_mismatch	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Ferguson_etal_2023_NatMethods/tmp/OTTR_P1_2/orf_map_clean.sam	18080843	Reads after trimming of 5' mismatches and removal of those with more than 2 mismatches
+OTTR_P1_2	umi_tools dedup	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Ferguson_etal_2023_NatMethods/output/OTTR_P1_2/OTTR_P1_2.bam	9561170	Deduplicated reads

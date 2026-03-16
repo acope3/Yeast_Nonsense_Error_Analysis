@@ -3,8 +3,11 @@ library(rhdf5)
 library(Biostrings)
 library(rtracklayer)
 
-source(file.path("/home","copea1","riboviz","rscripts", "read_count_functions.R"))
-source(file.path("/home","copea1","riboviz","rscripts", "stats_figs_block_functions.R"))
+riboviz.directory <- "~/Research_projects/riboviz/"
+
+#source(file.path(riboviz.directory,"rscripts","provenance.R"))
+source(file.path(riboviz.directory,"rscripts", "read_count_functions.R"))
+source(file.path(riboviz.directory,"rscripts", "stats_figs_block_functions.R"))
 
 #' CalcAsiteFixed(): Calculate read A-site using a fixed displacement for fixed read lengths
 #'
@@ -112,18 +115,18 @@ readGFFAsDf <- purrr::compose(
 
 
 
-cds.seq.file <- "~/example-datasets/fungi/saccharomyces/annotation/Saccharomyces_cerevisiae_yeast_CDS_w_250utrs.fa"
-asite.displacement.length.file <- "../00_data/02_riboseq_asite/chou_asite_offset.txt"
+cds.seq.file <- "../00_data/04_annotations/Saccharomyces_cerevisiae_yeast_CDS_w_250utrs.fa"
+asite.displacement.length.file <- "../00_data/02_riboseq_asite/ferguson_asite_offset.txt"
 cds.seq <- readDNAStringSet(cds.seq.file)
 
-gff_df <- readGFFAsDf("~/example-datasets/fungi/saccharomyces/annotation/Saccharomyces_cerevisiae_yeast_CDS_w_250utrs.gff3") %>%
+gff_df <- readGFFAsDf("../00_data/04_annotations/Saccharomyces_cerevisiae_yeast_CDS_w_250utrs.gff3") %>%
   filter(type == "CDS")
 start <- gff_df$start
 end <- gff_df$end - 3 # remove stop codon
 gene_names <- as.character(unique(gff_df$seqnames))
 
-h5_file <- "/home/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/output_trimmed/elp1D_2/elp1D_2.h5"
-dataset <- "C-Sc_2017"
+h5_file <- "../00_data/03_riboviz_results/02_ferguson/output/OTTR_P1_2/OTTR_P1_2.h5"
+dataset <- "F-Sc_2023"
 count_threshold <- 64
 min_read_length <- 10
 asite_displacement_length <- read_tsv(asite.displacement.length.file,comment="#")
@@ -142,7 +145,7 @@ count_df <- purrr::pmap(list(cds.seq,gene_names,start,end),function(gene,gene_na
                          frame0_only=F)
 }) %>% bind_rows()
 
-write_csv(count_df,"../00_data/00_panse_input/00_unfiltered_genes/chou_etal_2019_elp1D_2_all_genes.csv")
+write_csv(count_df,"../00_data/00_panse_input/00_unfiltered_genes/ferguson_etal_2023_ottr_p1_rep2_all_genes.csv")
 
 
 

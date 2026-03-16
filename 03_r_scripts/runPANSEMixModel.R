@@ -85,6 +85,8 @@ dev <- args$development
 
 print(args)
 
+prior.type <- gsub("_","-",prior.type)
+
 if (!is.null(dev))
 {
   library(AnaCoDa,lib.loc=dev)
@@ -370,7 +372,7 @@ while(run_number <= max_num_runs)
                                       nserate.uniform.upper.limit,
                                       nserate.exponential.mean)
   }
-  setRestartSettings(mcmc, paste(dir_name,"Restart_files/rstartFile.rst",sep="/"), adaptiveWidth, T)
+  setRestartSettings(mcmc, paste(dir_name,"Restart_files/rstartFile.rst",sep="/"), adaptiveWidth, F)
   sys.runtime <- system.time(
     runMCMC(mcmc, genome, model, num_threads,div=div)
   )
