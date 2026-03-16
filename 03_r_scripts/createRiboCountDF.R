@@ -125,7 +125,7 @@ start <- gff_df$start
 end <- gff_df$end - 3 # remove stop codon
 gene_names <- as.character(unique(gff_df$seqnames))
 
-h5_file <- "../00_data/03_riboviz_results/02_ferguson/output/OTTR_P1_1/OTTR_P1_1.h5"
+h5_file <- "../00_data/03_riboviz_results/02_ferguson/output/OTTR_P1_2/OTTR_P1_2.h5"
 dataset <- "F-Sc_2023"
 count_threshold <- 64
 min_read_length <- 10
@@ -145,7 +145,7 @@ count_df <- purrr::pmap(list(cds.seq,gene_names,start,end),function(gene,gene_na
                          frame0_only=F)
 }) %>% bind_rows()
 
-write_csv(count_df,"../00_data/00_panse_input/00_unfiltered_genes/ferguson_etal_2023_ottr_p1_all_genes.csv")
+write_csv(count_df,"../00_data/00_panse_input/00_unfiltered_genes/ferguson_etal_2023_ottr_p1_rep2_all_genes.csv")
 
 
 

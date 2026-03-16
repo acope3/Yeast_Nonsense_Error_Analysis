@@ -13,8 +13,10 @@ GetCodonPositionReads <- function(gene, dataset, hd_file = hd_file, left, right,
   length_id <- a_site_displacement$read_length - min_read_length + 1
   reads_pos <- GetGeneDatamatrix(gene, dataset, hd_file) # Get the matrix of read counts
   
-  reads <- lapply(length_id,function(x){
-    offset <- unlist(a_site_displacement %>% filter(read_length == (x - 1 + min_read_length)) %>% dplyr::select(asite_displacement))
+  reads <- lapply(length_id, function(x) {
+    offset <- unlist(a_site_displacement %>% 
+                       filter(read_length == (x - 1 + min_read_length)) %>%
+                       dplyr::select(asite_displacement))
     reads_pos[x, ] <- reads_pos[x, ] %>% dplyr::lag(n = offset, default = 0)
     l <- RcppRoll::roll_suml(reads_pos[x, left:right], n = 3, fill = NULL)[seq(1, length(reads_pos[x, left:right]), 3)]
     l
