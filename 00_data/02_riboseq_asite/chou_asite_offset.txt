@@ -1,0 +1,6 @@
+# Based on riboWaltz
+read_length	asite_displacement
+29	16
+30	16
+31	16
+32	16
