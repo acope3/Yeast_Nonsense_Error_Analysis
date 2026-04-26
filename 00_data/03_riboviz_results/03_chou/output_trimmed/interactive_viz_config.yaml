@@ -1,0 +1,7 @@
+dir_in: /nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/input/trim
+dir_out: /nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/output_trimmed
+dataset: C-Sc_2017
+fq_files: {WT_1: SRR5766382.fastq, WT_2: SRR5766387.fastq, elp1D_1: SRR5766388.fastq,
+  elp1D_2: SRR5766402.fastq}
+sample_sheet: null
+

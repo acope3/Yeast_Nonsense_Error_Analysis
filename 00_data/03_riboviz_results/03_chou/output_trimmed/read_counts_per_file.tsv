@@ -1,0 +1,34 @@
+# Created by: riboviz
+# Date: 2026-03-12 12:53:40.752369
+# Command-line tool: /panfs/accrepfs.vampire/home/copea1/riboviz/riboviz/tools/count_reads.py
+# File: /panfs/accrepfs.vampire/home/copea1/riboviz/riboviz/count_reads.py
+# Version: commit 03b0bd34ede443b51056ae76c0163ac8fc3b4ac5 date 2025-10-21 09:29:00-05:00
+SampleName	Program	File	NumReads	Description
+WT_1	input	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/input/trim/SRR5766382.fastq	16303074	input
+WT_2	input	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/input/trim/SRR5766387.fastq	12164770	input
+elp1D_1	input	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/input/trim/SRR5766388.fastq	11718884	input
+elp1D_2	input	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/input/trim/SRR5766402.fastq	19558832	input
+WT_1	cutadapt	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/tmp_trimmed/WT_1/trim.fq	15310620	Reads after removal of sequencing library adapters
+WT_1	hisat2	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/tmp_trimmed/WT_1/nonrRNA.fq	9317980	Reads that did not align to rRNA or other contaminating reads in rRNA index files
+WT_1	hisat2	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/tmp_trimmed/WT_1/rRNA_map.sam	5992640	Reads aligned to rRNA and other contaminating reads in rRNA index files
+WT_1	hisat2	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/tmp_trimmed/WT_1/unaligned.fq	1511317	Unaligned reads removed by alignment of remaining reads to ORFs index files
+WT_1	hisat2	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/tmp_trimmed/WT_1/orf_map.sam	9190426	Reads aligned to ORFs index files
+WT_1	riboviz.tools.trim_5p_mismatch	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/tmp_trimmed/WT_1/orf_map_clean.sam	9190407	Reads after trimming of 5' mismatches and removal of those with more than 2 mismatches
+WT_2	cutadapt	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/tmp_trimmed/WT_2/trim.fq	11928050	Reads after removal of sequencing library adapters
+WT_2	hisat2	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/tmp_trimmed/WT_2/nonrRNA.fq	6925462	Reads that did not align to rRNA or other contaminating reads in rRNA index files
+WT_2	hisat2	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/tmp_trimmed/WT_2/rRNA_map.sam	5002588	Reads aligned to rRNA and other contaminating reads in rRNA index files
+WT_2	hisat2	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/tmp_trimmed/WT_2/unaligned.fq	1179052	Unaligned reads removed by alignment of remaining reads to ORFs index files
+WT_2	hisat2	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/tmp_trimmed/WT_2/orf_map.sam	6760103	Reads aligned to ORFs index files
+WT_2	riboviz.tools.trim_5p_mismatch	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/tmp_trimmed/WT_2/orf_map_clean.sam	6760079	Reads after trimming of 5' mismatches and removal of those with more than 2 mismatches
+elp1D_1	cutadapt	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/tmp_trimmed/elp1D_1/trim.fq	11441667	Reads after removal of sequencing library adapters
+elp1D_1	hisat2	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/tmp_trimmed/elp1D_1/nonrRNA.fq	6294712	Reads that did not align to rRNA or other contaminating reads in rRNA index files
+elp1D_1	hisat2	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/tmp_trimmed/elp1D_1/rRNA_map.sam	5146955	Reads aligned to rRNA and other contaminating reads in rRNA index files
+elp1D_1	hisat2	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/tmp_trimmed/elp1D_1/unaligned.fq	1143022	Unaligned reads removed by alignment of remaining reads to ORFs index files
+elp1D_1	hisat2	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/tmp_trimmed/elp1D_1/orf_map.sam	6076562	Reads aligned to ORFs index files
+elp1D_1	riboviz.tools.trim_5p_mismatch	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/tmp_trimmed/elp1D_1/orf_map_clean.sam	6076542	Reads after trimming of 5' mismatches and removal of those with more than 2 mismatches
+elp1D_2	cutadapt	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/tmp_trimmed/elp1D_2/trim.fq	19490183	Reads after removal of sequencing library adapters
+elp1D_2	hisat2	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/tmp_trimmed/elp1D_2/nonrRNA.fq	12193258	Reads that did not align to rRNA or other contaminating reads in rRNA index files
+elp1D_2	hisat2	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/tmp_trimmed/elp1D_2/rRNA_map.sam	7296925	Reads aligned to rRNA and other contaminating reads in rRNA index files
+elp1D_2	hisat2	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/tmp_trimmed/elp1D_2/unaligned.fq	1076017	Unaligned reads removed by alignment of remaining reads to ORFs index files
+elp1D_2	hisat2	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/tmp_trimmed/elp1D_2/orf_map.sam	13022273	Reads aligned to ORFs index files
+elp1D_2	riboviz.tools.trim_5p_mismatch	/nobackup/rokaslab/copea1/Public_sequencing/Ribo_seq/Fungi/Scerevisiae/Chou_etal_2017_Mol_Cell/tmp_trimmed/elp1D_2/orf_map_clean.sam	13022210	Reads after trimming of 5' mismatches and removal of those with more than 2 mismatches
