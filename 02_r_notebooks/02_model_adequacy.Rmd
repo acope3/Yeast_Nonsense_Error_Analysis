@@ -181,3 +181,101 @@ ggsave2(file.path(fig.dir,"ramp_effect_waiting_time_and_phi.pdf"),ramp.other.eff
 
 ```
 
+
+# NSE rate of stop codons
+
+```{r}
+nserate.3utrs <- read_csv("../01_results/00_panse_fits/2026-03-25_Weinberg_etal_2016_all_genes_stop_codons_3_utrs_filter_genes_shorter_than_225_codons_200_ramp_0.2_upper_limit/restart_1/Parameter_est/1_Weinberg_etal_2016_3_utrs_NSERate.csv") %>%
+	filter(Codon %in% c("TAA","TGA","TAG"))
+
+nserate.stop.codon <- ggplot(nserate.3utrs, aes(x=Codon,y=Mean,ymin = `2.5%`,ymax=`97.5%`)) + 
+	geom_pointrange() +
+	xlab("Stop codon") +
+	ylab("NSE Rate") +
+	cowplot::theme_cowplot()
+
+
+nserate.stop.codon
+```
+
+# Waiting time changes of tRNA modificiation knockouts
+
+
+```{r}
+compareParameterLogFC <- function(wt.dir = "../01_results/00_panse_fits/2026-03-20_Chou_etal_2017_wt_1_all_genes_longer_than_225_codons_200_ramp/final_restart/Parameter_est/",
+																	treat.dir = "../01_results/00_panse_fits/2026-03-20_Chou_etal_2017_elp1D_1_all_genes_longer_than_225_codons_200_ramp/final_restart/Parameter_est/",
+																	parameter="WaitingTime_log_scale")
+{
+	wt.files <- list.files(wt.dir,full.names = T)
+	wt.param <- wt.files[str_detect(wt.files,parameter)]
+	treat.files <- list.files(treat.dir,full.names = T)
+	treat.param <- treat.files[str_detect(treat.files,parameter)]
+	
+	wt <- read_csv(wt.param)
+	treat <- read_csv(treat.param) 
+	
+	wt.vs.treat <- wt %>% 
+		left_join(treat,by=c("AA","Codon"),suffix=c("_WT","_elp1D")) %>%
+		mutate(elp1.target = ifelse(Codon %in% c("AAA","CAA","GAA"),"AAA, CAA, GAA","Other Codons"),
+					Log.FC = Mean_elp1D - Mean_WT)
+	
+	wt.vs.treat.p <- ggplot(wt.vs.treat,aes(x=elp1.target,y=Log.FC)) +
+		geom_boxplot() +
+		xlab("Codon group") +
+		ylab("Log Fold Change") +
+		stat_compare_means() +
+		cowplot::theme_cowplot()
+	return(list(data=wt.vs.treat,plot=wt.vs.treat.p))
+	
+}
+
+
+
+wt.diff <- compareParameterLogFC()
+wt.diff$plot <- wt.diff$plot + ylab("Waiting Time Log FC")
+nserate.diff <- compareParameterLogFC(parameter="NSERate_log_scale")
+nserate.diff$plot <- nserate.diff$plot + ylab("NSE Rate Log FC") 
+
+wt.scatter <- ggplot(wt.diff$data,aes(x=Mean_WT - mean(Mean_WT),y=Mean_elp1D - mean(Mean_elp1D))) + 
+	geom_point() + 
+	geom_errorbar(aes(ymin=`2.5%_elp1D` - mean(Mean_elp1D),ymax=`97.5%_elp1D` - mean(Mean_elp1D))) +
+	geom_errorbarh(aes(xmin=`2.5%_WT` - mean(Mean_WT),xmax=`97.5%_WT`-mean(Mean_WT))) + 
+	geom_abline(intercept=0,slope=1,linetype="dashed") + 
+	xlab("Mean-centered Waiting Times (WT)") +
+	ylab("Mean-centered Waiting Times (elp1 Deletion)") +
+	stat_cor(method="spearman",label.sep="\n",cor.coef.name = "rho") +
+	cowplot::theme_cowplot() +
+	facet_wrap(~elp1.target,nrow=2)
+
+wt.scatter
+
+nserate.scatter <- ggplot(nserate.diff$data,aes(x=Mean_WT - mean(Mean_WT),y=Mean_elp1D - mean(Mean_elp1D))) + 
+	geom_point() + 
+	geom_errorbar(aes(ymin=`2.5%_elp1D` - mean(Mean_elp1D),ymax=`97.5%_elp1D` - mean(Mean_elp1D))) +
+	geom_errorbarh(aes(xmin=`2.5%_WT` - mean(Mean_WT),xmax=`97.5%_WT`-mean(Mean_WT))) + 
+	geom_abline(intercept=0,slope=1,linetype="dashed") + 
+	xlab("Mean-centered NSE Rates (WT)") +
+	ylab("Mean-centered NSE Rates (elp1 Deletion)") +
+	stat_cor(method="spearman",label.sep="\n",cor.coef.name = "rho") +
+	cowplot::theme_cowplot() +
+	facet_wrap(~elp1.target,nrow=2)
+
+nserate.scatter
+
+```
+
+```{r fig.width=12, fig.height=8}
+
+layout <- "
+##BBCC
+AABBCC
+AABBCC
+##BBCC
+"
+
+stop.codon.and.wait.time <- nserate.stop.codon + wt.scatter + nserate.scatter + plot_annotation(tag_levels = "A") + plot_layout(design=layout)
+
+ggsave2(file.path(fig.dir, "stop_codon_nserate_and_chou_etal_wait_time_comparisons.pdf"),width=12,height=8)
+
+
+```
