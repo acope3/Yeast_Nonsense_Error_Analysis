@@ -187,6 +187,8 @@ ggsave2(file.path(fig.dir,"ramp_effect_waiting_time_and_phi.pdf"),ramp.other.eff
 ```{r}
 nserate.3utrs <- read_csv("../01_results/00_panse_fits/2026-03-25_Weinberg_etal_2016_all_genes_stop_codons_3_utrs_filter_genes_shorter_than_225_codons_200_ramp_0.2_upper_limit/restart_1/Parameter_est/1_Weinberg_etal_2016_3_utrs_NSERate.csv") %>%
 	filter(Codon %in% c("TAA","TGA","TAG"))
+wt.3utrs <- read_csv("../01_results/00_panse_fits/2026-03-25_Weinberg_etal_2016_all_genes_stop_codons_3_utrs_filter_genes_shorter_than_225_codons_200_ramp_0.2_upper_limit/restart_1/Parameter_est/1_Weinberg_etal_2016_3_utrs_WaitingTime.csv") %>%
+	filter(Codon %in% c("TAA","TGA","TAG"))
 
 nserate.stop.codon <- ggplot(nserate.3utrs, aes(x=Codon,y=Mean,ymin = `2.5%`,ymax=`97.5%`)) + 
 	geom_pointrange() +
@@ -195,7 +197,15 @@ nserate.stop.codon <- ggplot(nserate.3utrs, aes(x=Codon,y=Mean,ymin = `2.5%`,yma
 	cowplot::theme_cowplot()
 
 
+wt.stop.codon <- ggplot(wt.3utrs, aes(x=Codon,y=Mean,ymin = `2.5%`,ymax=`97.5%`)) + 
+	geom_pointrange() +
+	xlab("Stop codon") +
+	ylab("Waiting time (1/Elongation Rate)") +
+	cowplot::theme_cowplot()
+
+
 nserate.stop.codon
+wt.stop.codon
 ```
 
 # Waiting time changes of tRNA modificiation knockouts

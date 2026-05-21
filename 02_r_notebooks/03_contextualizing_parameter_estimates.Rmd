@@ -23,17 +23,13 @@ suppressMessages(source("helperFunctions.R"))
 
 # Contextualing parameter estimates
 
+Note that most of this code was written using the convention of $\phi$ for our gene-specific rates. However, the manuscript uses $\kappa'$. I'm sticking with $\phi$ in the code for PANSE to avoid breaking things, but keep in mind this is different from the ROC-SEMPPR estimate of $\phi$, which is based solely on codon usage patterns.
 
 ```{r}
 main.yeast.data.path <- "../00_data/00_panse_input/2023-06-12_weinberg_etal_2016_all_frames_200_ramp.csv"
 full.yeast.data.path <- "../00_data/00_panse_input/2023-01-05_weinberg_etal_2016_all_frames_0_ramp.csv"
 main.yeast.result.path <- "../01_results/00_panse_fits/2026-01-07_Weinberg_etal_2016_all_frames_filter_genes_shorter_than_225_codons_200_ramp_updated_posterior_variable_nse/final_restart/"
 
-
-
-# main.yeast.data.path <- "../00_data/00_panse_input/2025-11-21_ferguson_etal_2023_all_frames_100_ramp.csv"
-# full.yeast.data.path <- "../00_data/00_panse_input/00_unfiltered_genes/ferguson_etal_2023_ottr_p1_rep1_plus_rep2_all_genes.csv"
-# main.yeast.result.path <- "../01_results/00_panse_fits/2025-11-21_Ferguson_etal_2023_rep1_plus_rep2_all_frames_filter_genes_shorter_than_150_codons_100_ramp/final_restart/"
 
 main.yeast.data <- read_csv(main.yeast.data.path)
 full.yeast.data <- read_csv(full.yeast.data.path)
@@ -79,6 +75,16 @@ sigma <- sigma %>%
   left_join(mrna,by="GeneID") %>%
   left_join(init.rates,by="GeneID") %>%
   left_join(roc.phi, by="GeneID")
+
+sigma.for.si <- sigma %>%
+  dplyr::rename(PANSE.kappa=Phi,
+                Bonnin.Drop.Off.Resilience=drop_off_resilience,
+                Weinberg.mRNA.RPKM=RPKM,
+                Weinberg.Init.Rate=S,
+                ROC.phi=Mean) %>%
+  dplyr::select(-c(Number_of_codons,rho_phys,alpha_phys,ref))
+
+write_tsv(sigma.for.si,"../01_results/sigma_for_si.tsv")
 
 
 ```
@@ -274,7 +280,7 @@ length.vs.sigma <- ggplot(sigma,aes(x=Length,y=1-Sigma)) +
   scale_x_log10() +
   scale_y_log10() +
   ylab(expression("Pr(NSE) = 1-"*sigma)) +
-  labs(color=expression("Log"["10"]*"(Gene Expr."~kappa*")"),size=expression("Log"["10"]*"(CDS Length)")) +
+  labs(color=expression("Log"["10"]*"(Gene Expr."~kappa^"'"*")"),size=expression("Log"["10"]*"(CDS Length)")) +
   theme(#title = element_text(size=10),
         ggside.axis.text = element_blank(),
         ggside.axis.line = element_blank(),
@@ -310,7 +316,7 @@ bonnin.vs.sigma <- ggplot(sigma,aes(x=drop_off_resilience,y=Sigma)) +
   stat_cor(method="spearman",label.sep="\n",cor.coef.name = "rho") +
   xlab("Drop-off Resilience (Bonnin et al. 2017)") +
   ylab(expression("Pr(No NSE) ="~sigma)) +
-  labs(color=expression("Log"["10"]*"(Gene Exp."~kappa*")"),size=expression("Log"["10"]*"(Length)")) +
+  labs(color=expression("Log"["10"]*"(Gene Expr."~kappa^"'"*")"),size=expression("Log"["10"]*"(Length)")) +
   theme(ggside.axis.text = element_blank(),
         ggside.axis.line = element_blank(),
         ggside.axis.ticks = element_blank()) +
@@ -431,11 +437,9 @@ ggsave3(file = file.path(fig.dir, "NSE-rate_vs_codon.pdf"),
 
 ```{r fig.height=12}
 sorted.nse.pr.df <- nse.pr.df %>%
-  left_join(scer.tgcn) %>%
   arrange(AA,Mean) %>%
   mutate(Codon = ifelse(!Codon %in% c("CTT","GGG","CCC","AGG","CTC","CCT","CTG","CGA","CCG","GTG","GCG"),Codon,paste0("**",Codon,"**")),
-         Codon = factor(Codon,levels = unique(Codon)),
-         By.wobble = ifelse(tRNA == 0,"Wobble Only","Exact Match")) 
+         Codon = factor(Codon,levels = unique(Codon))) 
 
 nse.pr.by.codon <- ggplot(sorted.nse.pr.df %>%
                            filter(!(AA %in%"Z")),
@@ -538,22 +542,6 @@ t.test(log.nserate.fs$No$Mean,log.nserate.fs$Yes$Mean)
 
 
 ```{r}
-trna.comp <- read_tsv("../01_results/tgcn.tsv")
-scer.tgcn <- read_tsv("../00_data/01_correlates/tgcn.tsv")
-
-wobble <- trna.comp %>% 
-  dplyr::select(Codon,AA,Cognate) %>% 
-  separate(Cognate,sep=",",into=c("tRNA.1","tRNA.2","tRNA.3")) %>% 
-  rowwise() %>% 
-  mutate(across(starts_with("tRNA"),~ifelse(!is.na(.),reverseComplement(.),NA))) %>% 
-  ungroup() %>% 
-  mutate(Total.tRNA=rowSums(!is.na(dplyr::select(.,-Codon,-AA))), 
-         Perfect.Match = ifelse(Codon %in% c(tRNA.1,tRNA.2),T,F),
-         Wobble = case_when(
-           Perfect.Match & Total.tRNA == 1 ~ "No",
-           Perfect.Match & Total.tRNA > 1 ~ "Yes",
-           !Perfect.Match ~ "Yes"
-         ))
 
 err.detect <- read_csv("../00_data/01_correlates/landerer_etal_error_detection.csv") %>%
   mutate(Log10.Miss.Err.Prob = log10(mean))
@@ -562,10 +550,7 @@ nse.df.tmp = list(Rate = nse.rate.df, Pr = nse.pr.df)
 
 nse.df.lst <- lapply(nse.df.tmp, function(x) {
   x %>% 
-  left_join(wobble) %>%
-  left_join(near.cog) %>%  
   left_join(err.detect) %>%
-  left_join(wt.next) %>%
   left_join(main.yeast.result$Wait.Time %>% dplyr::select(Codon,Mean) %>% dplyr::rename(Wait.Time=Mean)) %>%
   separate(Codon,into=c("First","Second","Third"),sep="(?<=[A-Z])",remove = F) %>%
   mutate(Stop.Neighbor.First.Yes = ifelse(Stop.Neighbor.First == 0,"No","Yes"),
@@ -648,7 +633,6 @@ coef_data <- coef_data %>%
     term == "PropertyNeutral" ~ "AA Property - Neutral",
     term == "PropertyOther" ~ "AA Property - Other",
     term == "Frameshift.competentYes" ~ "Frameshift competent",
-    term == "WobbleYes" ~ "Wobble base pairing",
     term == "Log10.Miss.Err.Prob" ~ "Missense error probability"
   ))
 
@@ -661,6 +645,7 @@ plot_data <- data.frame(
 ) %>%
   mutate(term=fct_relevel(term,"Intercept (Reference class)",after = Inf))
 
+write_tsv(plot_data,"../01_results/nserate_vs_codon_properties_regression.tsv")
 
 reg.plot <- ggplot(plot_data, aes(x = term, y = estimate,shape = sig)) +
   geom_bar(stat = "identity", color = "black", width = 0.7,fill="white",color="black") +
@@ -1219,104 +1204,3 @@ ggsave3(file.path(fig.dir, "Figure_6.pdf"),mrna.sigma.total,width=16,height=12)
 
 ```
 
-# Correlations between codon-specific parameters
-
-```{r}
-alpha.df <- main.yeast.result$Alpha %>% 
-  dplyr::rename(Alpha=Mean,Alpha_Std.Dev=Std.Dev,`Alpha_2.5%`=`2.5%`,`Alpha_97.5%`=`97.5%`)
-lambda.df <- main.yeast.result$Lambda %>% 
-  dplyr::rename(Lambda=Mean,Lambda_Std.Dev=Std.Dev,`Lambda_2.5%`=`2.5%`,`Lambda_97.5%`=`97.5%`)
-wt.df <- main.yeast.result$Wait.Time %>% 
-  dplyr::rename(Wait.Time=Mean,Wait.Time_Std.Dev=Std.Dev,`Wait.Time_2.5%`=`2.5%`,`Wait.Time_97.5%`=`97.5%`)
-log.nserate.df <- main.yeast.result$Log.NSERate %>% 
-  dplyr::rename(Log.NSERate=Mean,Log.NSERate_Std.Dev=Std.Dev,`Log.NSERate_2.5%`=`2.5%`,`Log.NSERate_97.5%`=`97.5%`)
-
-csp.param.df <- list(alpha.df,lambda.df,wt.df,log.nserate.df) %>%
-  purrr::reduce(left_join,by=c("AA","Codon")) %>%
-  rowwise() %>%
-  mutate(Stop.neighbors = stopCodonNeighbor(Codon,by.pos=3))
-
-ggplot(csp.param.df,aes(x=Alpha,y=Log.NSERate)) +
-  geom_point(aes(color=Stop.neighbors)) +
-  geom_errorbar(aes(ymin=`Log.NSERate_2.5%`,ymax=`Log.NSERate_97.5%`),alpha=0.5) +
-  geom_errorbarh(aes(xmin=`Alpha_2.5%`,xmax=`Alpha_97.5%`),alpha=0.5) +
-  xlab(expression(alpha)) +
-  ylab(expression("Log"[10]*"(NSE Rate)")) +
-  stat_cor(method="spearman",cor.coef.name = "rho") +
-  theme_cowplot() +
-  theme(aspect.ratio=1)
-  
-
-ggplot(csp.param.df,aes(x=Lambda,y=Log.NSERate)) +
-  geom_point(aes(color=Stop.neighbors)) +
-  geom_errorbar(aes(ymin=`Log.NSERate_2.5%`,ymax=`Log.NSERate_97.5%`),alpha=0.5) +
-  geom_errorbarh(aes(xmin=`Lambda_2.5%`,xmax=`Lambda_97.5%`),alpha=0.5) +
-  xlab(expression(lambda)) +
-  ylab(expression("Log"[10]*"(NSE Rate)")) +
-  stat_cor(method="spearman",cor.coef.name = "rho") +
-  theme_cowplot() +
-  theme(aspect.ratio=1)
-
-ggplot(csp.param.df,aes(x=Wait.Time,y=Log.NSERate)) +
-  geom_point(aes(color=Stop.neighbors)) +
-  geom_errorbar(aes(ymin=`Log.NSERate_2.5%`,ymax=`Log.NSERate_97.5%`),alpha=0.5) +
-  geom_errorbarh(aes(xmin=`Wait.Time_2.5%`,xmax=`Wait.Time_97.5%`),alpha=0.5) +
-  xlab(expression(alpha/lambda)) +
-  ylab(expression("Log"[10]*"(NSE Rate)")) +
-  stat_cor(method="spearman",cor.coef.name = "rho") +
-  theme_cowplot() +
-  theme(aspect.ratio=1)
-  
-
-
-
-```
-
-
-
-```{r}
-getNonCognate <- function(codon,tgcn)
-{
-  anticodon.cognate <- scer.tgcn %>%
-    filter(Codon == codon) %>%
-    dplyr::select(Near.cognate) %>%
-    mutate(anticodon=paste(Near.cognate,sep=",")) %>%
-    dplyr::select(anticodon) %>% 
-    deframe() %>% 
-    str_split(",") %>% 
-    unlist()
-  
-  anticodon.cognate <- anticodon.cognate[which(anticodon.cognate != "NA")]
-  cognate <- lapply(anticodon.cognate,reverseComplement) %>% unlist()
-  non.cogn.tgcn <- tgcn %>%
-    filter(Codon %in% cognate) %>%
-    summarize(sum(tRNA)) %>%
-    deframe() %>%
-    unname()
-  return(non.cogn.tgcn)
-  
-}
-
-scer.tgcn <- read_tsv("../00_data/01_correlates/tgcn.tsv")
-trna.cog <- read_tsv("../01_results/tgcn.tsv")
-scer.tgcn <- scer.tgcn %>%
-  left_join(trna.cog)
-nserate <- main.yeast.result$Log.NSERate
-wait.time <- main.yeast.result$Wait.Time
-
-sense.codons <- AnaCoDa::codons()
-sense.codons <- sense.codons[!sense.codons %in% c("TGA","TAA","TAG")]
-names(sense.codons) <- sense.codons
-
-noncognate.tgcn <- lapply(sense.codons,getNonCognate,scer.tgcn) %>%
-  bind_rows(.id="Codon") %>%
-  pivot_longer(everything(),names_to="Codon",values_to="Non_cognate_tGCN")
-
-test <- main.yeast.result$Log.NSERate %>%
-  left_join(wait.time,by=c("AA","Codon"),suffix=c("_NSE","_WT")) %>%
-  left_join(noncognate.tgcn)
-
-plot(test$Mean_NSE,test$Non_cognate_tGCN)
-cor.test(test$Mean_NSE,test$Non_cognate_tGCN,method = "spearman")
-
-```

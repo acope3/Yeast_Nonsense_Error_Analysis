@@ -707,7 +707,7 @@ layout <- "
    AABBCC
    #DDDD#
 "
-total <- mrna.vs.cost.p  + prop.cost.vs.total.assembly  + exp.nse.vs.pausing.fold.change.c.assembly + log.reg.plots + plot_annotation(tag_levels = "A") + plot_layout(design = layout)
+total <- prop.cost.vs.total.assembly  + exp.nse.vs.pausing.fold.change.c.assembly + mrna.vs.cost.p  + log.reg.plots + plot_annotation(tag_levels = "A") + plot_layout(design = layout)
 total
 
 

@@ -7,3 +7,5 @@ This directory contains R Notebooks that are used to generate figures and perfor
 - 02_model_adequacy.Rmd: comparing real and data simulated under posterior parameter estimates, particularly as it relates to the 5'-ramp region
 - 03_contextualizing_parameter_estimates.Rmd: comparing PANSE parameter estimates to independent empirical data (e.g., mRNA abundances) and theoretical expectations (e.g., are codons with greater NSE probabilities biased toward the 5'-end)
 - 04_testing_for_adaptation_against_nonsense_errors.Rmd: testing for adaptation to reduce the cost of NSEs, including how translation costs (direct, indirect, and NSE costs) vary with gene expression and length
+- 05_estimating_ribosomal_degradation_rates.Rmd: Notebook for estimating $C_{t_{1/2}}$
+- 06_comparing_across_runs.Rmd: Comparing parameter estimates across different runs and data sets. 
